@@ -1,11 +1,13 @@
 package com.study.jpa.repository;
 
+import com.study.jpa.config.JpaAuditingConfig;
 import com.study.jpa.entity.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.context.annotation.Import;
 
 import java.util.List;
 import java.util.Optional;
@@ -18,8 +20,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @DataJpaTest：只加载 JPA 相关组件（不加载 Controller/Service），
  * 使用 H2 内存库，每个测试自动回滚事务（互不影响）。
  * 这是测试 Repository 的标准方式。
+ *
+ * 注意：@DataJpaTest 是切片测试，默认不加载 @Configuration 类，
+ * 所以 @EnableJpaAuditing（审计字段自动填充）需要 @Import 显式导入。
  */
 @DataJpaTest
+@Import(JpaAuditingConfig.class)
 class UserRepositoryTest {
 
     @Autowired

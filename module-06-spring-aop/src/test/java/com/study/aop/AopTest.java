@@ -39,6 +39,10 @@ class AopTest {
     @Test
     void listOrders_shouldWork() {
         orderService.createOrder("电脑", 1);
-        assertEquals(1, orderService.listOrders().size());
+        // 注意：@SpringBootTest 共享同一个 OrderService 单例，
+        // 其他测试可能已创建订单，所以断言要自包含（不依赖全局数量）
+        boolean containsNewOrder = orderService.listOrders().stream()
+                .anyMatch(o -> o.contains("电脑"));
+        assertTrue(containsNewOrder, "列表中应包含刚创建的订单");
     }
 }
