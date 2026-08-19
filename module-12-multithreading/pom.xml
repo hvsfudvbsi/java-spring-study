@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.study</groupId>
+        <artifactId>java-spring-study</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <!--
+      纯 Java 模块：不依赖 Spring，专注多线程与并发编程。
+      本模块不打可执行 jar，运行方式见 README。
+    -->
+    <artifactId>module-12-multithreading</artifactId>
+    <name>module-12-multithreading</name>
+    <description>多线程与并发：API 方法用例（常用+不常用）、生产者消费者、抢票、银行转账、高并发请求（虚拟线程）实操</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
