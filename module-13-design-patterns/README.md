@@ -51,6 +51,29 @@
 | 审批流引擎 | `practice/ApprovalWorkflowDemo` | 报销单按金额多级审批，提交前快照可回退 | 责任链（分级审批）、状态（草稿->审批中->通过/驳回）、备忘录（快照+历史栈回退） |
 | 文档导出中心 | `practice/DocumentExportDemo` | 内部/遗留数据统一导出，可叠加水印/压缩/加密 | 适配器（遗留系统接口）、享元（字体复用）、装饰器（加密->压缩->水印）、外观（一键导出） |
 
+### 第五部分：框架源码分析（spring-ai-client-chat 1.1.8 中的设计模式）
+
+> 分析对象：`spring-ai-client-chat-1.1.8.jar`（Maven 本地仓库 ~/.m2 下），方法：解压 jar + javap 反编译核心类，逐模式核对类与方法。
+> 配套**纯 Java 模拟**（无需 Spring AI 依赖），复刻 jar 的架构设计，可直接运行学习。
+
+| 设计模式 | jar 中的落点 | 学习要点 | 模拟示例 |
+|---------|-------------|---------|---------|
+| 门面 Facade | `ChatClient` / `DefaultChatClient` | 对外只暴露 `prompt()`/`mutate()`/`builder()` 几个入口，内部封装 Prompt 组装、Advisor 链、模型调用 | `SpringAiCoreSimulation` |
+| 建造者 Builder | `ChatClient.Builder` / `DefaultChatClientBuilder`（+ 各 Advisor 的 `$Builder`） | `defaultSystem/defaultUser/defaultAdvisors/build()` 链式配置，一次构建处处复用 | `SpringAiCoreSimulation` |
+| 责任链 Chain | `advisor.api.CallAdvisor/StreamAdvisor` + `DefaultAroundAdvisorChain` + `ChatModelCallAdvisor`（链终点） | `adviseCall(request, chain)` 逐级传递；记忆/日志/安全/工具都是链上一环 | `SpringAiCoreSimulation` |
+| 模板方法 Template | `advisor.api.BaseAdvisor`（default 骨架）+ `BaseChatMemoryAdvisor` | 骨架负责调度与链推进，子类只覆写 `before()`/`after()` 钩子 | `SpringAiCoreSimulation` |
+| 原型 Prototype | `ChatClient.Builder.clone()` + `ChatClient.mutate()` | 基于现有配置克隆新 Builder，微调后 build 出独立实例，互不污染 | `SpringAiCoreSimulation` |
+| 适配器 Adapter | `Builder.defaultTools(Object...)` -> `ToolCallbackUtils` -> `ToolCallback` | 把 `@Tool` 注解的普通 Java 方法适配成 LLM 可调用工具 | `SpringAiExtSimulation` |
+| 策略 Strategy | `ChatClientCustomizer.customize(Builder)` | Spring Boot 收集所有 Customizer Bean 依次应用，可插拔组合 | `SpringAiExtSimulation` |
+| 观察者 Observer | `ChatClientCompletionObservationHandler` / `ChatClientPromptContentObservationHandler` | Micrometer Observation 发布事件，Handler 订阅埋点，业务零侵入 | `SpringAiExtSimulation` |
+| 静态工厂（变体） | `ChatClient.create(model)` / `builder(model)` | 简单工厂隐藏实现类，顺带解决"接口 + 默认实现"装配 | `SpringAiCoreSimulation` |
+
+**文件说明**：
+- `springai/SpringAiPatternAnalysis` —— 分析结果（模式 -> 落点 -> javap 证据 -> 要点），可直接运行查看
+- `springai/SpringAiCoreSimulation` —— 核心 5 模式模拟（门面/建造者/责任链/模板方法/原型）
+- `springai/SpringAiExtSimulation` —— 扩展 3 模式模拟（适配器/策略/观察者）
+- 测试 `springai/SpringAiPatternTest` —— 8 个用例验证各模式行为（链顺序/记忆钩子/原型独立/工具调用/策略定制/事件广播）
+
 ## 🚀 运行方式
 
 ```bash
@@ -68,6 +91,15 @@ mvn compile exec:java -pl module-13-design-patterns -Dexec.mainClass=com.study.d
 
 # 实操三：文档导出中心
 mvn compile exec:java -pl module-13-design-patterns -Dexec.mainClass=com.study.designpattern.practice.DocumentExportDemo
+
+# 第五部分一：Spring AI 设计模式分析
+mvn compile exec:java -pl module-13-design-patterns -Dexec.mainClass=com.study.designpattern.springai.SpringAiPatternAnalysis
+
+# 第五部分二：核心 5 模式模拟（门面/建造者/责任链/模板方法/原型）
+mvn compile exec:java -pl module-13-design-patterns -Dexec.mainClass=com.study.designpattern.springai.SpringAiCoreSimulation
+
+# 第五部分三：扩展 3 模式模拟（适配器/策略/观察者）
+mvn compile exec:java -pl module-13-design-patterns -Dexec.mainClass=com.study.designpattern.springai.SpringAiExtSimulation
 ```
 
 ## 🔍 核心概念讲解（面试必问）
@@ -126,3 +158,4 @@ shape.accept(visitor)  ->  visitor.visit(circle)     // 由元素的运行时类
 6. 给 `InterpreterDemo` 增加除法和括号支持（提示：递归下降里加一层 paren 解析），验证 `(1+2)*3 = 9`。
 7. 把 `ObserverDemo` 改成拉模型：观察者收到通知后主动调用 `station.temperature()/humidity()` 取值。
 8. ✅ 已实现：`StateDemo` 提供"状态类"与"枚举+转移表"两套写法，对照阅读理解两种实现各自的适用场景。
+9. ✅ 已实现：`springai/SpringAiPatternAnalysis` 逐模式分析了 spring-ai-client-chat-1.1.8.jar 的源码设计（门面/建造者/责任链/模板方法/原型/适配器/策略/观察者/静态工厂），并附纯 Java 模拟与测试——学完 23 个模式后，对照真实框架源码看它们如何被组合使用。

@@ -104,5 +104,18 @@ public class Main {
         System.out.println("  2. 审批流引擎   : com.study.designpattern.practice.ApprovalWorkflowDemo");
         System.out.println("  3. 文档导出中心 : com.study.designpattern.practice.DocumentExportDemo");
         System.out.println("  详情见 module-13-design-patterns/README.md");
+
+        System.out.println();
+        System.out.println("========================================");
+        System.out.println("  第五部分：框架源码分析（spring-ai-client-chat 1.1.8）");
+        System.out.println("========================================");
+
+        com.study.designpattern.springai.SpringAiPatternAnalysis.main(args);
+        System.out.println();
+
+        com.study.designpattern.springai.SpringAiCoreSimulation.main(args);
+        System.out.println();
+
+        com.study.designpattern.springai.SpringAiExtSimulation.main(args);
     }
 }
