@@ -3,7 +3,9 @@ package com.study.security.config;
 import com.study.security.security.JwtAuthenticationFilter;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -56,6 +58,17 @@ public class SecurityConfig {
                 .build();
 
         return new InMemoryUserDetailsManager(admin, user);
+    }
+
+    /**
+     * 认证管理器：登录时校验用户名密码（AuthController 中注入使用）。
+     * Spring Security 6 默认不会暴露 AuthenticationManager Bean，
+     * 必须通过 AuthenticationConfiguration 显式获取（会基于上面的
+     * UserDetailsService + PasswordEncoder 自动构建 DaoAuthenticationProvider）。
+     */
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        return config.getAuthenticationManager();
     }
 
     /**
