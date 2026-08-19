@@ -1,0 +1,36 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+
+  cloud:
+    gateway:
+      routes:
+        # 用户服务路由：/api/user/** -> user-service
+        - id: user-service
+          uri: lb://user-service          # lb:// 前缀：经 LoadBalancer 从 Eureka 解析服务名
+          predicates:
+            - Path=/api/user/**           # 匹配 /api/user/ 开头的请求
+          filters:
+            - StripPrefix=2               # 去掉前两段（/api/user），转发 /users/1
+
+        # 订单服务路由：/api/order/** -> order-service
+        - id: order-service
+          uri: lb://order-service
+          predicates:
+            - Path=/api/order/**
+          filters:
+            - StripPrefix=2
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true
+
+logging:
+  level:
+    org.springframework.cloud.gateway: info

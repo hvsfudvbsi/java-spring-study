@@ -1,0 +1,15 @@
+server:
+  port: 8761
+
+spring:
+  application:
+    name: eureka-server
+
+eureka:
+  client:
+    # 单机注册中心：不注册自己、不拉取注册表（集群模式才需要）
+    register-with-eureka: false
+    fetch-registry: false
+  server:
+    # 学习阶段关闭自我保护：开发时服务频繁启停，避免注册表被"保护"导致残留
+    enable-self-preservation: false

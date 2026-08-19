@@ -37,6 +37,7 @@
         <module>module-07-spring-boot-advanced</module>
         <module>module-08-spring-cloud</module>
         <module>module-09-message-queue</module>
+        <module>module-10-spring-cloud-microservices</module>
     </modules>
 
     <properties>

@@ -28,6 +28,7 @@ Java 21 + Spring Boot 3.5 多模块学习仓库：**从 Java 基础到 Spring Cl
 | [module-07-spring-boot-advanced](module-07-spring-boot-advanced) | Spring Boot 高级特性 | 缓存（Caffeine）、定时任务、@Async 异步、事件驱动、Actuator |
 | [module-08-spring-cloud](module-08-spring-cloud) | Spring Cloud | OpenFeign 声明式调用、负载均衡、Resilience4j 熔断降级 |
 | [module-09-message-queue](module-09-message-queue) | 消息队列 | Kafka（内嵌 broker 开箱即用）+ RabbitMQ（按需启用）、生产消费、交换机路由 |
+| [module-10-spring-cloud-microservices](module-10-spring-cloud-microservices) | 微服务多服务演示 | Eureka 注册中心 + Gateway 网关 + 4 个独立服务、服务间 Feign 调用 |
 
 ## 🚀 快速开始
 

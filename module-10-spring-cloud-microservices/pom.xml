@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.study</groupId>
+        <artifactId>java-spring-study</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <!--
+      微服务多服务演示：聚合模块（packaging=pom，本身无代码）
+      内含 4 个独立可运行的 Spring Boot 服务：
+
+        eureka-server   注册中心（Eureka Server）
+        user-service    用户服务（微服务 A）
+        order-service   订单服务（微服务 B，Feign 调用 user-service）
+        api-gateway     网关（Spring Cloud Gateway，统一入口 + 路由）
+
+      为什么拆成独立模块？
+        网关基于 WebFlux（响应式），不能与 spring-boot-starter-web（Servlet）
+        共存于同一应用，所以每个服务必须是独立的 Spring Boot 应用。
+
+      构建：
+        mvn clean package -pl module-10-spring-cloud-microservices -am
+    -->
+    <artifactId>module-10-spring-cloud-microservices</artifactId>
+    <packaging>pom</packaging>
+    <name>module-10-spring-cloud-microservices</name>
+    <description>微服务多服务演示：Eureka 注册中心 + Gateway 网关 + 服务间 Feign 调用</description>
+
+    <modules>
+        <module>eureka-server</module>
+        <module>user-service</module>
+        <module>order-service</module>
+        <module>api-gateway</module>
+    </modules>
+</project>
