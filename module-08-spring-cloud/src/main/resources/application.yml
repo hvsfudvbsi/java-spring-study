@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: module-08-spring-cloud
+
+server:
+  port: 8080
+
+# ---------------- Resilience4j 熔断器配置 ----------------
+resilience4j:
+  circuitbreaker:
+    instances:
+      remoteService:            # 与 @CircuitBreaker(name="remoteService") 对应
+        slidingWindowSize: 10   # 统计最近 10 次调用
+        failureRateThreshold: 50  # 失败率超过 50% 打开熔断器
+        slowCallRateThreshold: 50 # 慢调用占比阈值
+        slowCallDurationThreshold: 1000  # 超过 1 秒算慢调用
+        waitDurationInOpenState: 10s     # 打开后等 10 秒进入半开状态
+        permittedNumberOfCallsInHalfOpenState: 3  # 半开状态放 3 个试探请求
+
+# ---------------- OpenFeign 配置 ----------------
+feign:
+  client:
+    config:
+      default:
+        connect-timeout: 3000   # 连接超时 3 秒
+        read-timeout: 5000      # 读取超时 5 秒（超过则抛异常，触发降级）
+  circuitbreaker:
+    enabled: false              # 本模块用注解方式熔断，不开启 Feign 级熔断
+
+logging:
+  level:
+    com.study.cloud: info

@@ -1,0 +1,16 @@
+spring:
+  application:
+    name: module-06-spring-aop
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.study.aop.aspect: info
+
+# AOP 默认使用 JDK 动态代理（接口）或 CGLIB（类）
+# 如需强制 CGLIB（暴露代理对象等场景）：
+# spring:
+#   aop:
+#     proxy-target-class: true   # Spring Boot 3.x 默认就是 CGLIB，无需配置

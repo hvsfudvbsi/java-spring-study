@@ -1,0 +1,34 @@
+# ==================== 主配置（所有 Profile 共享） ====================
+app:
+  name: java-spring-study
+  version: 1.0.0
+  author: zhangsan
+  tags:
+    - spring
+    - java
+    - boot
+  limits:
+    max-users: 1000
+    max-connections: 100
+  feature:
+    hello-enabled: true
+
+server:
+  port: 8080
+
+# ==================== 日志级别示例 ====================
+logging:
+  level:
+    root: info
+    com.study.bootbasics: debug
+
+# ==================== 常用配置项速查 ====================
+# spring:
+#   application:
+#     name: module-02          # 应用名（服务注册、日志中会用到）
+#   profiles:
+#     active: dev              # 激活哪个 Profile（或通过 --spring.profiles.active=dev 指定）
+#   jackson:
+#     date-format: yyyy-MM-dd HH:mm:ss   # JSON 序列化格式
+#   mvc:
+#     throw-exception-if-no-handler-found: true
