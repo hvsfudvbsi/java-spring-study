@@ -18,8 +18,17 @@ import io.netty.util.concurrent.GlobalEventExecutor;
  */
 public class ChatServerHandler extends SimpleChannelInboundHandler<String> {
 
-    /** 所有在线连接（全局唯一） */
-    private static final ChannelGroup CHANNELS = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
+    /** 所有在线连接（默认全局共享；测试时可注入独立群组） */
+    private static final ChannelGroup DEFAULT_CHANNELS = new DefaultChannelGroup(GlobalEventExecutor.INSTANCE);
+    private final ChannelGroup channels;
+
+    public ChatServerHandler() {
+        this(DEFAULT_CHANNELS);
+    }
+
+    public ChatServerHandler(ChannelGroup channels) {
+        this.channels = channels;
+    }
 
     /** 昵称属性 key：挂在每个 Channel 上 */
     private static final AttributeKey<String> NICKNAME = AttributeKey.valueOf("nickname");
@@ -29,12 +38,14 @@ public class ChatServerHandler extends SimpleChannelInboundHandler<String> {
     public void channelActive(ChannelHandlerContext ctx) {
         Channel channel = ctx.channel();
         // 默认昵称：用连接地址后 4 位，方便区分
-        String defaultNick = "用户-" + channel.remoteAddress().toString().replaceAll("\\D", "").substring(0, 4);
+        String digits = String.valueOf(channel.remoteAddress()).replaceAll("\\D", "");
+        String suffix = digits.length() >= 4 ? digits.substring(0, 4) : "未知";
+        String defaultNick = "用户-" + suffix;
         channel.attr(NICKNAME).set(defaultNick);
-        CHANNELS.add(channel); // 加入群组
+        channels.add(channel); // 加入群组
 
         channel.writeAndFlush("[系统] 欢迎 " + defaultNick + "！发送 'NICK:新昵称' 改名，发送 'quit' 退出");
-        broadcast("[系统] " + defaultNick + " 加入了聊天室（当前在线 " + CHANNELS.size() + " 人）", channel);
+        broadcast("[系统] " + defaultNick + " 加入了聊天室（当前在线 " + channels.size() + " 人）", channel);
         System.out.println("[上线] " + defaultNick + " 连接: " + channel.remoteAddress());
     }
 
@@ -69,14 +80,14 @@ public class ChatServerHandler extends SimpleChannelInboundHandler<String> {
     public void channelInactive(ChannelHandlerContext ctx) {
         Channel channel = ctx.channel();
         String nick = channel.attr(NICKNAME).get();
-        CHANNELS.remove(channel);
-        broadcast("[系统] " + nick + " 离开了聊天室（当前在线 " + CHANNELS.size() + " 人）", channel);
+        channels.remove(channel);
+        broadcast("[系统] " + nick + " 离开了聊天室（当前在线 " + channels.size() + " 人）", channel);
         System.out.println("[下线] " + nick + " 断开连接");
     }
 
     /** 广播消息：发给除发送者外的所有人 */
     private void broadcast(String message, Channel sender) {
-        for (Channel ch : CHANNELS) {
+        for (Channel ch : channels) {
             if (ch != sender) {
                 ch.writeAndFlush(message);
             }

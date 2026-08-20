@@ -1,6 +1,6 @@
 # module-11-netty · Netty 网络编程
 
-> 纯 Java 模块（不依赖 Spring）。从 API 方法用例到三个完整网络实操：回声、心跳、群聊。
+> 纯 Java 模块（不依赖 Spring）。从 API 方法用例到 TCP、UDP、HTTP、WebSocket、TLS、心跳和 IM 群聊等网络协议实操。
 > Netty 4.1.137.Final。
 
 ## 📖 本模块内容
@@ -22,9 +22,13 @@
 
 | 实操 | 文件 | 功能 | 技术点 |
 |------|------|------|--------|
-| 回声 | `echo/EchoServer` + `echo/EchoClient` | 收到什么回什么 | 服务端/客户端完整启动流程 |
-| 心跳 | `heartbeat/HeartbeatServer` + `HeartbeatClient` | 检测假死连接、定时发送 PING | IdleStateHandler、userEventTriggered |
-| 群聊 | `chat/ChatServer` + `ChatClient` | 多人实时聊天（完整项目） | ChannelGroup 广播、StringEncoder/Decoder、AttributeKey 属性、SimpleChannelInboundHandler |
+| TCP 回声 | `echo/EchoServer` + `echo/EchoClient` | 收到什么回什么 | NIO TCP 服务端/客户端完整启动流程 |
+| TCP 心跳 | `heartbeat/HeartbeatServer` + `HeartbeatClient` | 检测假死连接、定时发送 PING | IdleStateHandler、userEventTriggered |
+| TCP IM | `chat/ChatServer` + `ChatClient` | 多人实时聊天（完整项目） | ChannelGroup 广播、StringEncoder/Decoder、AttributeKey 属性 |
+| HTTP | `http/HttpServer` + `http/HttpClient` | `/hello`、`/health` 和 404 路由 | HttpServerCodec、HttpObjectAggregator、Keep-Alive |
+| UDP | `udp/UdpServer` + `udp/UdpClient` | 无连接数据报回显 | NioDatagramChannel、DatagramPacket、发送方地址 |
+| WebSocket | `websocket/WebSocketServer` | HTTP Upgrade 后回显文本帧 | WebSocketServerProtocolHandler、WebSocketFrame |
+| TLS/SSL | `ssl/SslServer` + `ssl/SslClient` | 自签名证书加密文本回显 | SslContext、SelfSignedCertificate、TLS Pipeline |
 
 ## 🚀 运行方式
 
@@ -61,6 +65,43 @@ mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.chat.
 mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.chat.ChatClient
 # 客户端输入 'NICK:小明' 设置昵称，输入 'quit' 退出
 ```
+
+### 实操四：HTTP
+```bash
+# 终端 1：HTTP 服务端（18083）
+mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.http.HttpServer
+# 终端 2：Netty HTTP 客户端
+mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.http.HttpClient
+# 也可以访问：curl http://127.0.0.1:18083/health
+```
+
+### 实操五：UDP
+```bash
+# 终端 1：UDP 服务端（18084）
+mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.udp.UdpServer
+# 终端 2：UDP 客户端
+mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.udp.UdpClient
+```
+
+### 实操六：WebSocket
+```bash
+# 启动服务端（18085，路径 /ws）
+mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.websocket.WebSocketServer
+# 浏览器控制台连接并发送消息
+const socket = new WebSocket('ws://127.0.0.1:18085/ws');
+socket.onmessage = event => console.log(event.data);
+socket.onopen = () => socket.send('hello websocket');
+```
+
+### 实操七：TLS/SSL
+```bash
+# 终端 1：TLS 服务端（18086，启动时生成临时自签名证书）
+mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.ssl.SslServer
+# 终端 2：TLS 客户端（学习示例会信任所有证书）
+mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.ssl.SslClient
+```
+
+> HTTP、UDP、WebSocket 和 TLS 的处理器均有 `EmbeddedChannel`/本地随机端口测试；测试不依赖固定端口，执行 `mvn test -pl module-11-netty` 即可验证。
 
 ## 🔍 核心概念讲解（面试必问）
 

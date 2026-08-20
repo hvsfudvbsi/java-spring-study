@@ -64,17 +64,21 @@ public class HeartbeatServer {
         worker.shutdownGracefully();
     }
 
-    static class HeartbeatServerHandler extends ChannelInboundHandlerAdapter {
+    public static class HeartbeatServerHandler extends ChannelInboundHandlerAdapter {
 
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) {
             ByteBuf buf = (ByteBuf) msg;
-            String data = buf.toString(CharsetUtil.UTF_8);
-            System.out.println("  [服务端] 收到: " + data + "（来自 " + ctx.channel().remoteAddress() + "）");
+            try {
+                String data = buf.toString(CharsetUtil.UTF_8);
+                System.out.println("  [服务端] 收到: " + data + "（来自 " + ctx.channel().remoteAddress() + "）");
 
-            if ("PING".equals(data)) {
-                // 收到客户端心跳，回 PONG
-                ctx.writeAndFlush(io.netty.buffer.Unpooled.copiedBuffer("PONG", CharsetUtil.UTF_8));
+                if ("PING".equals(data)) {
+                    // 收到客户端心跳，回 PONG
+                    ctx.writeAndFlush(io.netty.buffer.Unpooled.copiedBuffer("PONG", CharsetUtil.UTF_8));
+                }
+            } finally {
+                buf.release();
             }
         }
 
