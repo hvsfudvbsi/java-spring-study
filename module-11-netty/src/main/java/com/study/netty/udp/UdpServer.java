@@ -45,9 +45,12 @@ public class UdpServer {
             // 1. DatagramPacket 同时携带内容和地址；UDP 每个数据报都有独立边界。
             String message = packet.content().toString(CharsetUtil.UTF_8);
             String response = "UDP echo: " + message;
-            // 2. 回包目标必须使用 sender()，不能依赖 TCP 式的连接对象。
+            // 2. 打印收到和回复的内容，便于观察真实链路。
+            System.out.println("  [服务端] 收到数据报: " + message + "（来自 " + packet.sender() + "）");
+            // 3. 回包目标必须使用 sender()，不能依赖 TCP 式的连接对象。
             ctx.writeAndFlush(new DatagramPacket(
                     Unpooled.copiedBuffer(response, CharsetUtil.UTF_8), packet.sender()));
+            System.out.println("  [服务端] 已回复: " + response);
         }
 
         @Override

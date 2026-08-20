@@ -66,7 +66,10 @@ public class SslServer {
     private static class SslEchoHandler extends SimpleChannelInboundHandler<String> {
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, String message) {
+            // 打印收到和回复的内容，便于观察真实链路（与服务端其他示例保持一致）。
+            System.out.println("  [服务端] 收到: " + message + "（来自 " + ctx.channel().remoteAddress() + "）");
             ctx.writeAndFlush("TLS echo: " + message + System.lineSeparator());
+            System.out.println("  [服务端] 已回复: TLS echo: " + message);
         }
     }
 }
