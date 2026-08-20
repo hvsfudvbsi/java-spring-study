@@ -61,13 +61,27 @@ java -jar module-03-spring-mvc/target/module-03-spring-mvc-1.0.0-SNAPSHOT.jar
 
 ### 运行测试
 
+项目采用“单元测试 + 集成测试 + API 测试”分层，而不是只依赖接口调用：
+
+- `*UnitTest`：纯 JUnit/Mockito 单元测试，不启动 Spring 容器、不访问数据库、消息中间件或外部服务，快速覆盖每个业务分支。
+- `@DataJpaTest`、`@SpringBootTest`、`@EmbeddedKafka`：验证 JPA、事务、缓存、AOP、消息链路和 Bean 装配等框架集成行为。
+- `MockMvc` 测试：验证 HTTP 路由、参数绑定、校验、认证授权和响应状态码。
+
 ```bash
-# 全部模块测试
+# 全部测试（包含单元测试、切片测试、集成测试）
 mvn test
 
-# 单个模块测试
+# 单个模块全部测试
 mvn test -pl module-04-spring-data-jpa
+
+# 只运行某个模块的纯单元测试
+mvn test -pl module-03-spring-mvc -Dtest='**/*UnitTest'
+
+# 运行全项目纯单元测试；没有匹配测试的模块不失败
+mvn test -Dtest='**/*UnitTest' -Dsurefire.failIfNoSpecifiedTests=false
 ```
+
+新增业务功能时，建议先为 Service/Domain 方法编写 `*UnitTest`，再为 Spring 代理、数据库事务、消息投递和 HTTP 契约补充对应的集成/API 测试。
 
 ## 📚 学习建议
 
