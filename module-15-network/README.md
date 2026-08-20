@@ -37,6 +37,8 @@
 | `socket/TcpEchoServer` + `TcpEchoClient` | TCP 回显：ServerSocket.accept → Socket 读写（三次握手/四次挥手） |
 | `socket/UdpEchoServer` + `UdpEchoClient` | UDP 回显：DatagramSocket.receive/send（无连接） |
 | `socket/TcpStickyPacketDemo` | **粘包演示**：连续发 3 条消息，接收方 read 次数 < 3（无边界）vs UDP 正好 3 次（有边界） |
+| `socket/framed/FrameCodec` | **长度头帧协议**：`[4 字节长度][UTF-8 内容]`，编码 + 累积解码（粘包/拆包/半帧） |
+| `socket/framed/FramedTcpServer` + `FramedTcpClient` | **多线程帧协议服务器**：每连接一线程，按长度头拆帧回声 |
 
 ## 🚀 运行方式
 
@@ -105,7 +107,14 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.s
 - **TCP 是字节流**：内核把数据拼成连续的字节，不保留应用层的"消息"边界。发送方 `write` 3 次，接收方 `read` 可能 1 次读到全部（粘包）、也可能 1 条被拆成多次（拆包）。
 - **UDP 是数据报**：内核按数据报为单位收发，一次 `send` 对应一次 `receive`，天然有边界。
 
-所以 TCP 应用层必须自定义帧格式（定长/分隔符/长度字段），这正是 Netty `LengthFieldBasedFrameDecoder` 等解码器解决的问题（见 module-11-netty）。### 4. 三次握手与四次挥手（配合首部理解）
+所以 TCP 应用层必须自定义帧格式（定长/分隔符/长度字段）。本模块的 `FrameCodec` 实现了最通用的**长度头方案**：
+
+```text
+发送:  String -> [4 字节长度][UTF-8 内容]
+接收:  累积字节流 -> 长度头不足等 4 字节 -> 内容不足等补齐 -> 完整帧产出
+```
+
+`FrameDecoder` 累积缓冲正确处理粘包（一批多帧一次产出）、拆包（半帧等待）、长度头被拆（等够 4 字节）。这正是 Netty `LengthFieldBasedFrameDecoder` 的思路（见 module-11-netty）。### 4. 三次握手与四次挥手（配合首部理解）
 
 ```text
 三次握手（建立连接）:  Client -> SYN        Server
@@ -149,8 +158,10 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.s
 | `TransportProtocolTest`（4） | TCP/UDP 属性与首部长度对比、协议号反查 | — |
 | `TcpStateMachineTest`（12） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、非法转换拒绝 | 真实网络时序 |
 | `SocketIntegrationTest`（4） | **真实回环** TCP/UDP 回显、粘包 vs 有边界 | 跨主机网络 |
+| `FrameCodecTest`（9） | 长度头编码、粘包多帧、拆包等待、长度头分批、非法超长拒绝 | 真实网络 |
+| `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 
-> 共 41 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 54 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -164,7 +175,7 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.s
 
 1. 给 `TcpHeader` 增加 `URG` 标志位支持（0x20），补一个 URG 报文往返测试。
 2. 用 `PacketParser` 构造一个"IP + UDP + DNS 查询"报文，断言解析出 `destinationPort=53`。
-3. 给 `TcpEchoServer` 加 `LineBasedFrameDecoder` 思维：用分隔符协议解决粘包（提示：参考 module-11 的 `DelimiterBasedFrameDecoder`）。
+3. 给 `FramedTcpServer` 增加协议版本号：帧头改为 `[1 字节版本][4 字节长度][内容]`，不匹配的版本直接断开（提示：改 `FrameCodec.encode/decode` 并补测试）。
 4. 用 `tcpdump -i lo port 19001` 抓包观察三次握手，对照 `TcpHeader` 的标志位。
 5. 扩展 `TransportProtocol` 增加 ICMP 枚举（协议号 1），说明为什么它既不是 TCP 也不是 UDP。
 6. 给 `TcpStateMachine` 增加 `RST` 事件（连接重置）：ESTABLISHED + RST → 直接 CLOSED，补测试。
