@@ -125,5 +125,30 @@
                 </plugin>
             </plugins>
         </pluginManagement>
+
+        <!-- 全项目 Java 规范：重写父类或接口方法必须显式声明 @Override。 -->
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <configLocation>${maven.multiModuleProjectDirectory}/checkstyle.xml</configLocation>
+                    <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                    <!-- 当前 Checkstyle 版本无法解析 Java 21 record pattern 示例，编译器仍会校验该文件。 -->
+                    <excludes>**/RecordDemo.java</excludes>
+                    <failOnViolation>true</failOnViolation>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>check-java-style</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
     </build>
 </project>
