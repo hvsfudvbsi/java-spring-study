@@ -14,7 +14,11 @@ import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.ssl.util.SelfSignedCertificate;
+
+import javax.net.ssl.SSLSession;
+import java.security.cert.X509Certificate;
 
 /** 实操示例：TLS 加密的 Netty 文本回声服务。 */
 public class SslServer {
@@ -44,7 +48,8 @@ public class SslServer {
                     @Override
                     protected void initChannel(SocketChannel ch) {
                         // 3. SslHandler 必须位于业务协议前：先解密入站字节，先加密出站字节。
-                        ch.pipeline().addLast(sslContext.newHandler(ch.alloc()))
+                        SslHandler sslHandler = sslContext.newHandler(ch.alloc());
+                        ch.pipeline().addLast(sslHandler)
                                 // 4. TLS 解密后仍是 TCP 字节流，所以先按行切帧。
                                 .addLast(new LineBasedFrameDecoder(1024))
                                 // 5. 把 UTF-8 字节转换为 Java String，再进入业务 Handler。
@@ -52,6 +57,17 @@ public class SslServer {
                                 // 6. 业务返回的 String 经过 Encoder 和 SslHandler 后才写到网络。
                                 .addLast(new StringEncoder())
                                 .addLast(new SslEchoHandler());
+                        // 7. 观察握手完成事件：打印协商出的协议版本、密码套件和对端证书。
+                        sslHandler.handshakeFuture().addListener(future -> {
+                            if (future.isSuccess()) {
+                                SSLSession session = sslHandler.engine().getSession();
+                                System.out.println("  [服务端] TLS 握手成功: 协议=" + session.getProtocol()
+                                        + ", 密码套件=" + session.getCipherSuite()
+                                        + ", 对端证书=" + peerSubject(session));
+                            } else {
+                                System.out.println("  [服务端] TLS 握手失败: " + future.cause().getMessage());
+                            }
+                        });
                     }
                 });
         // 7. bind 成功后服务端开始监听；关闭服务端时释放 TLS 所在的 EventLoop 线程组。
@@ -61,6 +77,19 @@ public class SslServer {
             worker.shutdownGracefully();
         });
         return channel;
+    }
+
+    /** 读取会话中的对端证书主体；客户端未提供证书（无客户端认证）时返回说明。 */
+    private static String peerSubject(SSLSession session) {
+        try {
+            java.security.cert.Certificate[] certs = session.getPeerCertificates();
+            if (certs.length > 0 && certs[0] instanceof X509Certificate x509) {
+                return x509.getSubjectX500Principal().getName();
+            }
+            return "无";
+        } catch (Exception e) {
+            return "未提供（无客户端认证）";
+        }
     }
 
     private static class SslEchoHandler extends SimpleChannelInboundHandler<String> {

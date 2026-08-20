@@ -14,7 +14,11 @@ import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
+
+import javax.net.ssl.SSLSession;
+import java.security.cert.X509Certificate;
 
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -43,13 +47,25 @@ public class SslClient {
                         @Override
                         protected void initChannel(SocketChannel ch) {
                             // 2. 客户端 SslHandler 先完成 TLS 握手，并负责出入站加解密。
-                            ch.pipeline().addLast(sslContext.newHandler(ch.alloc(), host, port))
+                            SslHandler sslHandler = sslContext.newHandler(ch.alloc(), host, port);
+                            ch.pipeline().addLast(sslHandler)
                                     // 3. TLS 解密后按行切分，再转换为业务 String。
                                     .addLast(new LineBasedFrameDecoder(1024))
                                     .addLast(new StringDecoder())
                                     .addLast(new StringEncoder())
                                     // 4. 最后把服务端回显放入队列，供调用线程读取。
                                     .addLast(new SslClientHandler(responses));
+                            // 5. 观察握手完成事件：打印协商出的协议版本、密码套件和服务端证书。
+                            sslHandler.handshakeFuture().addListener(future -> {
+                                if (future.isSuccess()) {
+                                    SSLSession session = sslHandler.engine().getSession();
+                                    System.out.println("  [客户端] TLS 握手成功: 协议=" + session.getProtocol()
+                                            + ", 密码套件=" + session.getCipherSuite()
+                                            + ", 服务端证书=" + peerSubject(session));
+                                } else {
+                                    System.out.println("  [客户端] TLS 握手失败: " + future.cause().getMessage());
+                                }
+                            });
                         }
                     });
             // 5. connect 等待 TCP 连接建立；SslHandler 会在随后异步完成 TLS 握手。
@@ -62,6 +78,19 @@ public class SslClient {
             return response;
         } finally {
             group.shutdownGracefully();
+        }
+    }
+
+    /** 读取会话中的服务端证书主体；信任所有证书时仍能拿到证书信息。 */
+    private static String peerSubject(SSLSession session) {
+        try {
+            java.security.cert.Certificate[] certs = session.getPeerCertificates();
+            if (certs.length > 0 && certs[0] instanceof X509Certificate x509) {
+                return x509.getSubjectX500Principal().getName();
+            }
+            return "无";
+        } catch (Exception e) {
+            return "无";
         }
     }
 

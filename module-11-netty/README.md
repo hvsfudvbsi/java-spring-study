@@ -29,6 +29,7 @@
 | UDP | `udp/UdpServer` + `udp/UdpClient` | 无连接数据报回显 | NioDatagramChannel、DatagramPacket、发送方地址 |
 | WebSocket | `websocket/WebSocketServer` | HTTP Upgrade 后处理文本、二进制和 Ping/Pong 帧 | WebSocketServerProtocolHandler、WebSocketFrame、协议心跳 |
 | TLS/SSL | `ssl/SslServer` + `ssl/SslClient` | 自签名证书加密文本回显 | SslContext、SelfSignedCertificate、TLS Pipeline |
+| TLS 握手观察 | `ssl/SslHandshakeDemo` | 打印 ClientHello→Finished 每一步报文与协商结果 | javax.net.debug 握手跟踪、handshakeFuture、SSLSession |
 
 ## 🚀 运行方式
 
@@ -99,6 +100,12 @@ socket.onopen = () => socket.send('hello websocket');
 mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.ssl.SslServer
 # 终端 2：TLS 客户端（学习示例会信任所有证书）
 mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.ssl.SslClient
+```
+
+### 实操八：亲眼观察 TLS 握手
+```bash
+# 单进程内自动启动 TLS 服务端+客户端，打印 ClientHello→Finished 每一步报文
+mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.ssl.SslHandshakeDemo
 ```
 
 > HTTP、UDP、WebSocket 和 TLS 的处理器均有 `EmbeddedChannel`/本地随机端口测试；测试不依赖固定端口，执行 `mvn test -pl module-11-netty` 即可验证。
@@ -279,6 +286,31 @@ TLS Handler 必须放在业务协议 Handler 前面：
 - 生产环境必须使用真实证书、严格校验主机名，并妥善保护私钥。
 
 源码：`ssl/SslServer`、`ssl/SslClient`；测试：`SslServerTest` 和 SSL 配置测试。
+
+### 9.1 握手详细步骤：ClientHello 到 Finished（对应 `ssl/SslHandshakeDemo`）
+
+TLS 握手是客户端与服务端先协商参数、再建立加密通道的过程。运行 `SslHandshakeDemo` 会开启
+JSSE 握手跟踪（`javax.net.debug=ssl:handshake`），把 TLS 1.3 握手的每一步真实报文打印出来：
+
+| 步骤 | 方向 | 作用 |
+|------|------|------|
+| ClientHello | 客户端→服务器 | 携带客户端随机数、支持的 TLS 版本与密码套件、SNI（服务器名） |
+| ServerHello | 服务器→客户端 | 选定 TLS 版本与密码套件，返回服务器随机数 |
+| EncryptedExtensions | 服务器→客户端 | 此后传输开始加密；传递扩展参数 |
+| Certificate | 服务器→客户端 | 服务器证书链；客户端用它验证服务器身份（本示例信任所有证书） |
+| CertificateVerify | 服务器→客户端 | 用私钥签名，证明证书与私钥匹配、握手中途未被篡改 |
+| Finished | 服务器→客户端 | 对全部握手消息的完整性校验值 |
+| Finished | 客户端→服务器 | 客户端同样发送校验值，双向确认 |
+| Application Data | 双向 | 业务数据使用协商出的密钥加密传输 |
+
+观察要点：
+- 跟踪日志里 `ClientHello` / `ServerHello` 会出现双方协商的版本与密码套件；`Certificate`
+  里能看到自签名证书（CN=localhost）；`Finished` 表示握手完成，此后所有日志里出现的
+  `Application Data` 就是加密的业务数据。
+- 想看密钥交换细节（随机数、密钥参数），把 `SslHandshakeDemo` 中的调试级别改成
+  `ssl:handshake:verbose`。
+- `SslServer`/`SslClient` 单独运行时，也会在控制台打印 `TLS 握手成功: 协议=...，密码套件=...，
+  对端证书=...`，便于直接确认握手结果。
 
 ### 10. IM 群聊：ChannelGroup 与连接状态
 
