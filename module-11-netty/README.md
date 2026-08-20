@@ -30,6 +30,7 @@
 | WebSocket | `websocket/WebSocketServer` | HTTP Upgrade 后处理文本、二进制和 Ping/Pong 帧 | WebSocketServerProtocolHandler、WebSocketFrame、协议心跳 |
 | TLS/SSL | `ssl/SslServer` + `ssl/SslClient` | 自签名证书加密文本回显 | SslContext、SelfSignedCertificate、TLS Pipeline |
 | TLS 握手观察 | `ssl/SslHandshakeDemo` | 打印 ClientHello→Finished 每一步报文与协商结果 | javax.net.debug 握手跟踪、handshakeFuture、SSLSession |
+| 性能对比 | `performance/PerformanceDemo` | 阻塞 IO vs Netty 压测对比（低/高并发两档）+ 高并发连接演示 | thread-per-connection vs EventLoop、NIO 多路复用、峰值线程统计 |
 
 ## 🚀 运行方式
 
@@ -106,6 +107,16 @@ mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.ssl.S
 ```bash
 # 单进程内自动启动 TLS 服务端+客户端，打印 ClientHello→Finished 每一步报文
 mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.ssl.SslHandshakeDemo
+```
+
+### 实操九：Netty 性能对比
+```bash
+# 单进程内自动跑完：高并发连接演示 + 低并发/高并发两档压测对比
+mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.performance.PerformanceDemo
+
+# 可调参数（可选）：-Dperf.connectCount=3000 -Dperf.workers=4
+#   -Dbench.connections=100 -Dbench.messages=300   （低并发档）
+#   -Dbench2.connections=3000 -Dbench2.messages=50 （高并发档）
 ```
 
 > HTTP、UDP、WebSocket 和 TLS 的处理器均有 `EmbeddedChannel`/本地随机端口测试；测试不依赖固定端口，执行 `mvn test -pl module-11-netty` 即可验证。
@@ -327,6 +338,23 @@ JSSE 握手跟踪（`javax.net.debug=ssl:handshake`），把 TLS 1.3 握手的�
 - `AttributeKey` 把昵称附加到 Channel，避免把连接状态放进不安全的全局 Map；私聊正是通过遍历 `channels` 读取每个连接的昵称属性来定向。
 - 测试 EmbeddedChannel 多连接时必须使用不同 ChannelId；默认 EmbeddedChannel 可能共享 ID，ChannelGroup 会把连接误认为同一个。
 
+### 12. Netty 为什么快（性能对比，对应 `performance/PerformanceDemo`）
+
+Netty 的性能价值不是"单连接比阻塞 Socket 快"，而是**线程/资源可扩展性**：IO 线程数与连接数解耦。`PerformanceDemo` 用同一个按行回显协议实测两种实现：
+
+| 实现 | 线程模型 | 线程数 | 特点 |
+|------|---------|--------|------|
+| 阻塞 IO | thread-per-connection，每连接一线程 | = 连接数 | 实现简单；线程与连接同增长，内存/调度成本高 |
+| Netty | boss(1) + worker(N)，NIO 多路复用 | 固定少量 | 少量线程轮流处理所有连接；EventLoop 单线程串行免锁 |
+
+实测结论（本机回环，数字仅供参考）：
+- **低并发**（如 100 连接）：阻塞模型线程开销小，甚至比 Netty 略快——Netty 有事件分发与对象分配开销；
+- **高并发**（如 3000 连接）：阻塞模型线程数 = 连接数，上下文切换/调度成为瓶颈，Netty 固定线程反超；
+- **资源可扩展性**：3000 连接对阻塞模型约 3000 个线程（约 3GB 栈内存），对 Netty 只是 5 个固定线程；
+- 第一部分还会演示 Netty 用 5 个线程保持 3000 个并发连接，连接仍可正常收发。
+
+理解与选型：Netty 适合**海量长连接、高并发**场景（IM、推送、网关、代理）；简单的低并发请求-响应服务，阻塞模型够用且更直接。回环压测数据不代表真实网络性能，仅用于理解线程模型差异。
+
 源码：`chat/ChatServer`、`chat/ChatServerHandler`、`chat/ChatClient`；测试：`ProtocolHandlerTest`。
 
 ### 11. 测试如何对应真实网络
@@ -336,6 +364,7 @@ JSSE 握手跟踪（`javax.net.debug=ssl:handshake`），把 TLS 1.3 握手的�
 | `EmbeddedChannel` | Handler、编解码器、事件和引用计数 | 操作系统 Socket、真实网络延迟 |
 | 随机 TCP/UDP 端口 | 服务端绑定、客户端连接、真实协议链路 | 生产网络、防火墙和负载均衡 |
 | `SslServerTest` | SSL Context 和 Pipeline 能启动 | 真实证书链、主机名校验和生产安全配置 |
+| `PerformanceDemoTest` | 高并发连接保持、双服务压测完整性、线程数与连接数解耦 | 真实吞吐基准（回环环境波动大） |
 | `EchoIntegrationTest` | TCP 回声端到端结果 | 高并发性能和断网恢复 |
 
 ## 🧯 常见问题排查
