@@ -5,10 +5,12 @@ import com.study.transaction.repository.AccountRepository;
 import com.study.transaction.repository.TransactionLogRepository;
 import com.study.transaction.service.AccountService;
 import com.study.transaction.service.TransactionPropagationService;
+import com.study.transaction.service.TransactionWorker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.IllegalTransactionStateException;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -30,6 +32,9 @@ class TransactionServiceTest {
 
     @Autowired
     private TransactionPropagationService propagationService;
+
+    @Autowired
+    private TransactionWorker transactionWorker;
 
     @BeforeEach
     void resetDatabase() {
@@ -86,5 +91,59 @@ class TransactionServiceTest {
                 .containsExactly(
                         "outer log - committed",
                         "outer continued after nested rollback");
+    }
+
+    @Test
+    void supportsShouldJoinOuterTransaction() {
+        propagationService.supportsOuterCommit();
+
+        assertThat(logRepository.findAll()).extracting(TransactionLog::message)
+                .containsExactly(
+                        "outer log - committed",
+                        "inner log - joins transaction if present");
+    }
+
+    @Test
+    void notSupportedShouldCommitInnerLogAfterOuterRollback() {
+        assertThatThrownBy(propagationService::notSupportedOuterRollback)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("NOT_SUPPORTED outer transaction failed");
+
+        assertThat(logRepository.findAll()).extracting(TransactionLog::message)
+                .containsExactly("inner log - committed outside outer transaction");
+    }
+
+    @Test
+    void mandatoryShouldRejectCallWithoutExistingTransaction() {
+        assertThatThrownBy(transactionWorker::mandatoryInner)
+                .isInstanceOf(IllegalTransactionStateException.class);
+
+        assertThat(logRepository.findAll()).isEmpty();
+    }
+
+    @Test
+    void mandatoryShouldJoinExistingOuterTransaction() {
+        propagationService.mandatoryOuterCommit();
+
+        assertThat(logRepository.findAll()).extracting(TransactionLog::message)
+                .containsExactly(
+                        "outer log - committed",
+                        "inner log - requires an existing transaction");
+    }
+
+    @Test
+    void neverShouldRunWithoutExistingTransaction() {
+        transactionWorker.neverInner();
+
+        assertThat(logRepository.findAll()).extracting(TransactionLog::message)
+                .containsExactly("inner log - runs without a transaction");
+    }
+
+    @Test
+    void neverShouldRejectCallFromTransactionalOuterMethod() {
+        assertThatThrownBy(propagationService::neverOuterRollback)
+                .isInstanceOf(IllegalTransactionStateException.class);
+
+        assertThat(logRepository.findAll()).isEmpty();
     }
 }

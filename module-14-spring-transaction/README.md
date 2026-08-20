@@ -7,11 +7,13 @@
 | 文件 | 知识点 |
 |------|--------|
 | `service/AccountService` | `@Transactional` 声明式事务、转账原子性、运行时异常回滚 |
-| `service/TransactionPropagationService` | 外层事务与内层事务的 `REQUIRED`、`REQUIRES_NEW`、`NESTED` |
-| `service/TransactionWorker` | 被代理的内层事务方法；演示独立提交和保存点回滚 |
+| `service/TransactionPropagationService` | 外层事务与内层事务的七种传播行为 |
+| `service/TransactionWorker` | 被代理的内层事务方法：`REQUIRED`、`REQUIRES_NEW`、`NESTED`、`SUPPORTS`、`NOT_SUPPORTED`、`MANDATORY`、`NEVER` |
 | `repository/AccountRepository` | JdbcTemplate 更新账户余额 |
 | `repository/TransactionLogRepository` | 写入、查询事务日志，直观看到最终提交结果 |
-| `TransactionServiceTest` | 用集成测试验证提交、回滚和传播行为差异 |
+| `TransactionWorkerUnitTest` | 直接调用每种内层事务方法的 `@Test` 单元测试 |
+| `TransactionPropagationServiceUnitTest` | 直接测试外层编排方法和异常分支 |
+| `TransactionServiceTest` | 用 Spring 集成测试验证真实提交、回滚、挂起和保存点行为 |
 
 ## 🚀 运行与测试
 
@@ -47,6 +49,18 @@ curl -X POST "http://localhost:8080/api/transactions/propagation/requires-new"
 # NESTED：内层使用保存点回滚，外层捕获异常后仍可继续提交
 curl -X POST "http://localhost:8080/api/transactions/propagation/nested"
 
+# SUPPORTS：有外层事务时加入外层事务
+curl -X POST "http://localhost:8080/api/transactions/propagation/supports"
+
+# NOT_SUPPORTED：挂起外层事务，内层非事务执行
+curl -X POST "http://localhost:8080/api/transactions/propagation/not-supported"
+
+# MANDATORY：外层提供事务，内层才能执行
+curl -X POST "http://localhost:8080/api/transactions/propagation/mandatory"
+
+# NEVER：禁止在事务中执行
+curl -X POST "http://localhost:8080/api/transactions/propagation/never"
+
 # 查看最终提交的事务日志
 curl http://localhost:8080/api/transactions/logs
 ```
@@ -74,11 +88,17 @@ curl http://localhost:8080/api/transactions/logs
 | `MANDATORY` | 加入当前事务 | 抛出异常 | 强制调用方提供事务 |
 | `NEVER` | 抛出异常 | 非事务执行 | 禁止在事务中调用 |
 
-本模块的测试重点是前三种：
+本模块完整展示七种传播行为，并在 `TransactionWorkerUnitTest` 中直接调用每个方法，在 `TransactionServiceTest` 中验证真实事务结果：
 
-1. **REQUIRED**：外层和内层共用同一个物理事务。内层抛出运行时异常后，事务会被标记为 rollback-only；即使外层捕获异常，最终提交也可能抛出 `UnexpectedRollbackException`。
-2. **REQUIRES_NEW**：外层事务先挂起，内层独立提交，然后恢复外层。外层回滚不会影响已提交的内层事务，但要注意连接池至少需要能同时提供外层和内层连接。
-3. **NESTED**：在同一个物理事务中创建 JDBC 保存点。内层回滚只回到保存点，外层可以捕获异常并继续；它依赖事务管理器和底层数据库对保存点的支持。
+1. **REQUIRED**：外层和内层共用同一个物理事务。内层抛出运行时异常后，事务会被标记为 rollback-only，外层日志和内层日志一起回滚。
+2. **REQUIRES_NEW**：外层事务先挂起，内层独立提交，然后恢复外层。外层回滚不会影响已提交的内层事务，但连接池要能同时提供外层和内层连接。
+3. **NESTED**：在同一个物理事务中创建 JDBC 保存点。内层回滚只回到保存点，外层可以捕获异常并继续提交；它依赖事务管理器和数据库保存点支持。
+4. **SUPPORTS**：有外层事务时加入外层；没有外层事务时以非事务方式执行。适合可选事务语义的查询或辅助操作。
+5. **NOT_SUPPORTED**：挂起外层事务，以非事务方式执行内层操作。示例中内层日志会先提交，外层随后回滚也不会影响它。
+6. **MANDATORY**：强制要求调用方已经存在事务。直接在无事务环境调用会抛 `IllegalTransactionStateException`，放在外层事务中则正常加入。
+7. **NEVER**：强制要求调用方不存在事务。无事务调用可以执行，在事务中调用会抛 `IllegalTransactionStateException`，并导致外层回滚。
+
+> 注意：纯单元测试直接验证方法逻辑和异常分支；传播行为真正依赖 Spring AOP 代理，因此提交、回滚、事务挂起和保存点必须再由 Spring 集成测试验证。
 
 ### 3. `@Transactional` 常见属性
 
@@ -107,7 +127,8 @@ curl http://localhost:8080/api/transactions/logs
 ## ✍️ 动手练习
 
 1. 给转账方法增加 `rollbackFor = Exception.class`，再对比受检异常的默认行为。
-2. 将 `REQUIRES_NEW` 的日志改为失败，观察外层是否会感知内层异常。
-3. 把 H2 换成支持保存点的其他数据库，验证 `NESTED` 的数据库差异。
-4. 为账户更新增加并发测试，比较 `READ_COMMITTED` 和 `SERIALIZABLE` 的效果。
-5. 尝试把 `TransactionWorker` 的方法改成同类内部调用，验证代理失效问题。
+2. 观察七种传播行为对应的 `TransactionServiceTest`，记录每种场景最终留下的日志。
+3. 将 `REQUIRES_NEW` 的日志改为失败，观察外层是否会感知内层异常。
+4. 把 H2 换成支持保存点的其他数据库，验证 `NESTED` 的数据库差异。
+5. 为账户更新增加并发测试，比较 `READ_COMMITTED` 和 `SERIALIZABLE` 的效果。
+6. 尝试把 `TransactionWorker` 的方法改成同类内部调用，验证代理失效问题。

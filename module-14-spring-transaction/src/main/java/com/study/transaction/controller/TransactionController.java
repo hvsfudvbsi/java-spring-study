@@ -66,6 +66,30 @@ public class TransactionController {
         return Map.of("message", "NESTED 内层回滚后，外层仍然提交");
     }
 
+    @PostMapping("/propagation/supports")
+    public Map<String, String> supports() {
+        propagationService.supportsOuterCommit();
+        return Map.of("message", "SUPPORTS 在有外层事务时加入外层事务");
+    }
+
+    @PostMapping("/propagation/not-supported")
+    public Map<String, String> notSupported() {
+        propagationService.notSupportedOuterRollback();
+        return Map.of("message", "不会执行到这里：NOT_SUPPORTED 外层事务会回滚");
+    }
+
+    @PostMapping("/propagation/mandatory")
+    public Map<String, String> mandatory() {
+        propagationService.mandatoryOuterCommit();
+        return Map.of("message", "MANDATORY 在外层事务存在时正常执行");
+    }
+
+    @PostMapping("/propagation/never")
+    public Map<String, String> never() {
+        propagationService.neverOuterRollback();
+        return Map.of("message", "不会执行到这里：NEVER 禁止在事务中执行");
+    }
+
     @GetMapping("/logs")
     public List<TransactionLog> logs() {
         return logRepository.findAll();

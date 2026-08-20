@@ -49,4 +49,32 @@ class TransactionWorkerUnitTest {
 
         verify(logRepository).append("NESTED", "inner log - rolled back to savepoint");
     }
+
+    @Test
+    void supportsInnerShouldWriteLog() {
+        transactionWorker.supportsInner();
+
+        verify(logRepository).append("SUPPORTS", "inner log - joins transaction if present");
+    }
+
+    @Test
+    void notSupportedInnerShouldWriteLog() {
+        transactionWorker.notSupportedInner();
+
+        verify(logRepository).append("NOT_SUPPORTED", "inner log - committed outside outer transaction");
+    }
+
+    @Test
+    void mandatoryInnerShouldWriteLogWhenMethodIsCalledDirectly() {
+        transactionWorker.mandatoryInner();
+
+        verify(logRepository).append("MANDATORY", "inner log - requires an existing transaction");
+    }
+
+    @Test
+    void neverInnerShouldWriteLogWhenMethodIsCalledDirectly() {
+        transactionWorker.neverInner();
+
+        verify(logRepository).append("NEVER", "inner log - runs without a transaction");
+    }
 }

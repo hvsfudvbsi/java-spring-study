@@ -20,7 +20,7 @@ public class TransactionWorker {
         this.logRepository = logRepository;
     }
 
-    /** REQUIRED：加入调用方已有的事务。 */
+    /** REQUIRED：加入调用方已有的事务；没有事务时创建新事务。 */
     @Transactional(propagation = Propagation.REQUIRED)
     public void requiredInner() {
         logRepository.append("REQUIRED", "inner log - same transaction as outer");
@@ -38,5 +38,29 @@ public class TransactionWorker {
     public void nestedInner() {
         logRepository.append("NESTED", "inner log - rolled back to savepoint");
         throw new IllegalStateException("NESTED inner failed");
+    }
+
+    /** SUPPORTS：有事务就加入，没有事务也允许以非事务方式执行。 */
+    @Transactional(propagation = Propagation.SUPPORTS)
+    public void supportsInner() {
+        logRepository.append("SUPPORTS", "inner log - joins transaction if present");
+    }
+
+    /** NOT_SUPPORTED：挂起当前事务，以非事务方式执行。 */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void notSupportedInner() {
+        logRepository.append("NOT_SUPPORTED", "inner log - committed outside outer transaction");
+    }
+
+    /** MANDATORY：必须存在调用方事务，否则立即抛出异常。 */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void mandatoryInner() {
+        logRepository.append("MANDATORY", "inner log - requires an existing transaction");
+    }
+
+    /** NEVER：禁止在事务中执行；无事务时允许执行。 */
+    @Transactional(propagation = Propagation.NEVER)
+    public void neverInner() {
+        logRepository.append("NEVER", "inner log - runs without a transaction");
     }
 }

@@ -48,4 +48,33 @@ public class TransactionPropagationService {
             logRepository.append("NESTED", "outer continued after nested rollback");
         }
     }
+
+    /** SUPPORTS：外层有事务时，内层加入外层事务。 */
+    @Transactional
+    public void supportsOuterCommit() {
+        logRepository.append("SUPPORTS", "outer log - committed");
+        transactionWorker.supportsInner();
+    }
+
+    /** NOT_SUPPORTED：内层挂起外层事务，内层日志独立提交；随后外层回滚。 */
+    @Transactional
+    public void notSupportedOuterRollback() {
+        logRepository.append("NOT_SUPPORTED", "outer log - rolled back later");
+        transactionWorker.notSupportedInner();
+        throw new IllegalStateException("NOT_SUPPORTED outer transaction failed");
+    }
+
+    /** MANDATORY：外层提供事务，内层才能正常加入并执行。 */
+    @Transactional
+    public void mandatoryOuterCommit() {
+        logRepository.append("MANDATORY", "outer log - committed");
+        transactionWorker.mandatoryInner();
+    }
+
+    /** NEVER：外层存在事务，内层禁止执行并导致外层回滚。 */
+    @Transactional
+    public void neverOuterRollback() {
+        logRepository.append("NEVER", "outer log - rolled back");
+        transactionWorker.neverInner();
+    }
 }
