@@ -81,7 +81,7 @@ mvn test -pl module-03-spring-mvc -Dtest='**/*UnitTest'
 mvn test -Dtest='**/*UnitTest' -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
-新增业务功能时，建议先为 Service/Domain 方法编写 `*UnitTest`，再为 Spring 代理、数据库事务、消息投递和 HTTP 契约补充对应的集成/API 测试。
+新增业务功能时，建议先直接调用 Service/Domain/Worker 的具体方法编写 `*UnitTest`，用 Mock 隔离 Repository、Feign、消息客户端等依赖；Controller 不承担业务单元测试职责，HTTP 路由、参数校验和状态码统一由 MockMvc/API 集成测试验证。事务传播方法的业务分支用直接 `@Test` 调用验证，真实提交、回滚和保存点再由事务集成测试验证。
 
 ## 📚 学习建议
 
