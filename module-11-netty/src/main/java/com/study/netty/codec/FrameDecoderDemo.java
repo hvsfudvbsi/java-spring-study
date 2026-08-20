@@ -38,7 +38,12 @@ public class FrameDecoderDemo {
             if (msg == null) {
                 break;
             }
-            System.out.println("    -> " + msg.toString(CharsetUtil.UTF_8));
+            try {
+                System.out.println("    -> " + msg.toString(CharsetUtil.UTF_8));
+            } finally {
+                // EmbeddedChannel 读出的 ByteBuf 仍然有引用计数，消费后必须释放。
+                msg.release();
+            }
         }
 
         System.out.println();
@@ -52,7 +57,11 @@ public class FrameDecoderDemo {
             if (msg == null) {
                 break;
             }
-            System.out.println("    -> " + msg.toString(CharsetUtil.UTF_8));
+            try {
+                System.out.println("    -> " + msg.toString(CharsetUtil.UTF_8));
+            } finally {
+                msg.release();
+            }
         }
 
         System.out.println();
@@ -66,38 +75,48 @@ public class FrameDecoderDemo {
             if (msg == null) {
                 break;
             }
-            System.out.println("    -> " + msg.toString(CharsetUtil.UTF_8));
+            try {
+                System.out.println("    -> " + msg.toString(CharsetUtil.UTF_8));
+            } finally {
+                msg.release();
+            }
         }
 
         System.out.println();
         System.out.println("========== 4. LengthFieldBasedFrameDecoder 长度字段协议 ==========");
-        // 协议格式: [4字节长度][消息体]。LengthFieldPrepender 负责写出时加长度头。
-        EmbeddedChannel proto = new EmbeddedChannel(
-                new LengthFieldPrepender(4),                       // 出站：消息前加 4 字节长度
-                new LengthFieldBasedFrameDecoder(1024, 0, 4, 0, 4) // 入站：按长度字段拆包
-        );
+        // 协议格式: [4字节长度][消息体]。编码器和解码器在真实 Pipeline 中通常同时存在，
+        // 但在 EmbeddedChannel 中把两个方向拆成两个通道更容易看清数据流和资源所有权。
+        EmbeddedChannel encoder = new EmbeddedChannel(new LengthFieldPrepender(4));
+        EmbeddedChannel decoder = new EmbeddedChannel(
+                new LengthFieldBasedFrameDecoder(1024, 0, 4, 0, 4));
 
-        // 出站编码：LengthFieldPrepender（MessageToMessageEncoder）输出两条消息
-        // [长度头] + [内容]，线上字节流连续，EmbeddedChannel 需分别读取后合并成帧
-        proto.writeOutbound(Unpooled.copiedBuffer("协议消息A", CharsetUtil.UTF_8));
-        proto.writeOutbound(Unpooled.copiedBuffer("协议消息B", CharsetUtil.UTF_8));
-        ByteBuf framedA = Unpooled.wrappedBuffer((ByteBuf) proto.readOutbound(), (ByteBuf) proto.readOutbound());
-        ByteBuf framedB = Unpooled.wrappedBuffer((ByteBuf) proto.readOutbound(), (ByteBuf) proto.readOutbound());
+        // 1. 出站编码：每个业务消息都会变成一帧 [长度头][内容]。
+        encoder.writeOutbound(Unpooled.copiedBuffer("协议消息A", CharsetUtil.UTF_8));
+        encoder.writeOutbound(Unpooled.copiedBuffer("协议消息B", CharsetUtil.UTF_8));
+        // EmbeddedChannel 中 LengthFieldPrepender 将长度头和原始内容分别放入出站队列，
+        // 所以每条消息要把两个 ByteBuf 合并成线上看到的一帧。
+        ByteBuf framedA = Unpooled.wrappedBuffer((ByteBuf) encoder.readOutbound(),
+                (ByteBuf) encoder.readOutbound());
+        ByteBuf framedB = Unpooled.wrappedBuffer((ByteBuf) encoder.readOutbound(),
+                (ByteBuf) encoder.readOutbound());
         System.out.println("  出站消息已加长度头（[4字节长度][内容]）");
 
-        // 入站解码：模拟真实网络分批到达（一次 read 事件产出一条消息，
-        // 剩余数据留在解码器累积缓冲区，等下一批数据到达继续解析）
-        System.out.println("  按长度字段拆包（分批到达）:");
-        proto.writeInbound(framedA.copy());
-        System.out.println("    -> " + readMsg(proto));
-        proto.writeInbound(framedB.copy());
-        System.out.println("    -> " + readMsg(proto));
+        // 2. 入站解码：两帧可能在同一次 TCP read 中到达，也可能分两次到达。
+        //    这里分两次写入，突出“每次得到完整帧后才交给业务”的基本行为；
+        //    CodecTest 还验证了两帧连续写入时的粘包处理。
+        decoder.writeInbound(framedA.copy());
+        decoder.writeInbound(framedB.copy());
+        System.out.println("  按长度字段拆出完整消息:");
+        System.out.println("    -> " + readMsg(decoder));
+        System.out.println("    -> " + readMsg(decoder));
+
         framedA.release();
         framedB.release();
-        proto.finish();
-        line.finish();
-        delim.finish();
-        fixed.finish();
+        encoder.finishAndReleaseAll();
+        decoder.finishAndReleaseAll();
+        line.finishAndReleaseAll();
+        delim.finishAndReleaseAll();
+        fixed.finishAndReleaseAll();
     }
 
     /** 读取一条入站消息并转为字符串 */

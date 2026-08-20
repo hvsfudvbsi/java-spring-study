@@ -70,18 +70,26 @@ public class HeartbeatClient {
 
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) {
+            // 1. 读取服务端返回的 ByteBuf；PONG 只是本示例定义的心跳协议内容。
             ByteBuf buf = (ByteBuf) msg;
-            String data = buf.toString(CharsetUtil.UTF_8);
-            if ("PONG".equals(data)) {
-                System.out.println("  [客户端] 收到服务端心跳响应 PONG，链路正常");
+            try {
+                String data = buf.toString(CharsetUtil.UTF_8);
+                if ("PONG".equals(data)) {
+                    System.out.println("  [客户端] 收到服务端心跳响应 PONG，链路正常");
+                }
+            } finally {
+                // 2. 本 Handler 继承 ChannelInboundHandlerAdapter，不会自动释放入站 ByteBuf。
+                buf.release();
             }
         }
 
         /** 写空闲触发：发送心跳 */
         @Override
         public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
-            if (evt instanceof IdleStateEvent) {
-                System.out.println("  [客户端] 3 秒未发送数据，发送心跳 PING");
+            if (evt instanceof IdleStateEvent idleEvent) {
+                // 1. IdleStateHandler 只负责检测空闲，不负责决定业务动作。
+                // 2. 这里把 WRITER_IDLE 转换为应用层 PING；服务端收到后返回 PONG。
+                System.out.println("  [客户端] 3 秒未发送数据，发送心跳 PING（" + idleEvent.state() + "）");
                 ctx.writeAndFlush(Unpooled.copiedBuffer("PING", CharsetUtil.UTF_8));
             } else {
                 super.userEventTriggered(ctx, evt);

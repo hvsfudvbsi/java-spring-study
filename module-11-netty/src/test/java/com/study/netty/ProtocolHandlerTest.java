@@ -18,6 +18,8 @@ import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpHeaderNames;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpVersion;
+import io.netty.handler.codec.http.websocketx.PingWebSocketFrame;
+import io.netty.handler.codec.http.websocketx.PongWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
@@ -91,6 +93,18 @@ class ProtocolHandlerTest {
 
         TextWebSocketFrame response = channel.readOutbound();
         assertEquals("echo: hello websocket", response.text());
+        response.release();
+        channel.finishAndReleaseAll();
+    }
+
+    @Test
+    void websocketHandlerShouldRespondPongToPingFrame() {
+        EmbeddedChannel channel = new EmbeddedChannel(new WebSocketFrameHandler());
+
+        channel.writeInbound(new PingWebSocketFrame(Unpooled.copiedBuffer("heartbeat", CharsetUtil.UTF_8)));
+
+        PongWebSocketFrame response = channel.readOutbound();
+        assertEquals("heartbeat", response.content().toString(CharsetUtil.UTF_8));
         response.release();
         channel.finishAndReleaseAll();
     }

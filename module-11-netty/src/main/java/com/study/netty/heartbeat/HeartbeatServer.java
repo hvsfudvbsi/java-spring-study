@@ -86,10 +86,17 @@ public class HeartbeatServer {
         @Override
         public void userEventTriggered(ChannelHandlerContext ctx, Object evt) throws Exception {
             if (evt instanceof IdleStateEvent event) {
-                System.out.println("  [服务端] 读空闲超时，判定连接假死，关闭: "
-                        + ctx.channel().remoteAddress()
-                        + "（事件类型: " + event.state() + "）");
-                ctx.close();
+                // 1. IdleStateHandler 可能产生 READER_IDLE、WRITER_IDLE 或 ALL_IDLE，不能混为一谈。
+                // 2. 本服务端只把“长期没有收到客户端数据”定义为假死，因此只关闭 READER_IDLE。
+                if (event.state() == io.netty.handler.timeout.IdleState.READER_IDLE) {
+                    System.out.println("  [服务端] 读空闲超时，判定连接假死，关闭: "
+                            + ctx.channel().remoteAddress()
+                            + "（事件类型: " + event.state() + "）");
+                    ctx.close();
+                } else {
+                    // 写空闲可以扩展为服务端主动发送 PING；本示例暂不把它当作断线。
+                    System.out.println("  [服务端] 收到非读空闲事件: " + event.state());
+                }
             } else {
                 super.userEventTriggered(ctx, evt);
             }

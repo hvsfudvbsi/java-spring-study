@@ -25,6 +25,7 @@ public class WebSocketServer {
 
     /** 启动 WebSocket 服务。 */
     public static Channel start(int port) throws Exception {
+        // 1. WebSocket 建立在 TCP 上，因此启动阶段仍然使用标准 NIO TCP 服务端结构。
         EventLoopGroup boss = new NioEventLoopGroup(1);
         EventLoopGroup worker = new NioEventLoopGroup();
         ServerBootstrap bootstrap = new ServerBootstrap();
@@ -33,14 +34,17 @@ public class WebSocketServer {
                 .childHandler(new ChannelInitializer<SocketChannel>() {
                     @Override
                     protected void initChannel(SocketChannel ch) {
-                        ch.pipeline()
-                                .addLast(new HttpServerCodec())
+                        // 2. 握手前的数据是 HTTP，因此先放 HTTP 编解码和聚合器。
+                        ch.pipeline().addLast(new HttpServerCodec())
                                 .addLast(new HttpObjectAggregator(64 * 1024))
+                                // 3. Handler 完成 HTTP Upgrade，并把后续数据转换成 WebSocketFrame。
                                 .addLast(new WebSocketServerProtocolHandler(PATH))
+                                // 4. 握手成功后的文本/二进制帧交给业务 Handler。
                                 .addLast(new WebSocketFrameHandler());
                     }
                 });
 
+        // 5. 服务端开始监听；关闭监听 Channel 时同步停止 boss 和 worker。
         Channel channel = bootstrap.bind(port).sync().channel();
         channel.closeFuture().addListener(future -> {
             boss.shutdownGracefully();

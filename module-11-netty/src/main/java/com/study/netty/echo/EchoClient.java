@@ -75,8 +75,17 @@ public class EchoClient {
 
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) {
+            // 1. EchoServer 返回的是 ByteBuf；先把字节按 UTF-8 转成业务字符串。
             if (msg instanceof ByteBuf buf) {
-                responses.offer(buf.toString(CharsetUtil.UTF_8));
+                try {
+                    responses.offer(buf.toString(CharsetUtil.UTF_8));
+                } finally {
+                    // 2. ChannelInboundHandlerAdapter 不会自动释放 ByteBuf，必须由当前 Handler 释放。
+                    buf.release();
+                }
+            } else {
+                // 3. 非预期消息继续传递，避免 Handler 私自吞掉后续协议对象。
+                ctx.fireChannelRead(msg);
             }
         }
 

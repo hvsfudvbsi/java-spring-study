@@ -24,11 +24,15 @@ public class UdpServer {
 
     /** 启动 UDP 服务。 */
     public static Channel start(int port) throws Exception {
+        // 1. UDP 没有 boss/worker 两阶段连接模型，一个 DatagramChannel 就可以收发数据报。
         EventLoopGroup group = new NioEventLoopGroup(1);
         Bootstrap bootstrap = new Bootstrap();
         bootstrap.group(group)
+                // 2. NioDatagramChannel 对应底层 UDP Socket。
                 .channel(NioDatagramChannel.class)
+                // 3. 每个入站 DatagramPacket 直接交给数据报 Handler。
                 .handler(new UdpServerHandler());
+        // 4. bind 绑定本地 UDP 端口；sync 等待端口真正可用后再返回。
         Channel channel = bootstrap.bind(port).sync().channel();
         channel.closeFuture().addListener(future -> group.shutdownGracefully());
         return channel;
@@ -38,8 +42,10 @@ public class UdpServer {
     public static class UdpServerHandler extends SimpleChannelInboundHandler<DatagramPacket> {
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, DatagramPacket packet) {
+            // 1. DatagramPacket 同时携带内容和地址；UDP 每个数据报都有独立边界。
             String message = packet.content().toString(CharsetUtil.UTF_8);
             String response = "UDP echo: " + message;
+            // 2. 回包目标必须使用 sender()，不能依赖 TCP 式的连接对象。
             ctx.writeAndFlush(new DatagramPacket(
                     Unpooled.copiedBuffer(response, CharsetUtil.UTF_8), packet.sender()));
         }

@@ -76,6 +76,8 @@ public class CustomCodecDemo {
         System.out.println("  第一批半帧到达，解码器等待...（readInbound=" + channel.readInbound() + "）");
         channel.writeInbound(secondHalf.copy());        // 补齐后产出完整消息
         System.out.println("  第二批补齐后解码: " + channel.readInbound());
+        // readSlice 只是 frame 的视图；两批数据复制完成后，原始 frame 才能释放。
+        frame.release();
 
         // ---- 入站：模拟粘包（两帧连在一起到达） ----
         channel.writeInbound(wrapTwoFrames(encoded, encoded)); // 两帧拼接
@@ -86,7 +88,8 @@ public class CustomCodecDemo {
         }
 
         encoded.release();
-        channel.finish();
+        // finishAndReleaseAll 同时关闭 EmbeddedChannel，并清理尚未消费的入站/出站消息。
+        channel.finishAndReleaseAll();
     }
 
     /** 拼接两个 ByteBuf（演示粘包） */

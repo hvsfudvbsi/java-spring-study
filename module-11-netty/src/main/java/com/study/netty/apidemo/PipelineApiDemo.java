@@ -85,8 +85,10 @@ public class PipelineApiDemo {
         p.remove(lastA);                          // 按实例移除
         System.out.println("  remove 后 pipeline: " + p.names());
 
-        // ---- replace：替换 handler ----
-        p.replace("handlerB2", "handlerB3", new InHandlerB());
+        // ---- replace：替换仍然存在的 handlerB ----
+        // 前面的 remove(InHandlerB.class) 已经移除了第一个同类型 Handler（handlerB2），
+        // 因此这里必须替换当前仍在 Pipeline 中的 handlerB。
+        p.replace("handlerB", "handlerB3", new InHandlerB());
         System.out.println("  replace 后 pipeline: " + p.names());
 
         // ---- 遍历查询 ----
@@ -101,10 +103,24 @@ public class PipelineApiDemo {
         p.fireChannelActive();              // 手动触发 channelActive
         p.fireChannelInactive();            // 手动触发 channelInactive
         p.fireChannelReadComplete();        // 手动触发读完成
-        p.fireExceptionCaught(new RuntimeException("演示异常传播"));
+        try {
+            // 没有 Handler 消费异常时，EmbeddedChannel 会把异常重新抛给调用方；
+            // 真实服务必须在 exceptionCaught 中记录、关闭连接或转交统一异常处理器。
+            p.fireExceptionCaught(new RuntimeException("演示异常传播"));
+        } catch (RuntimeException exception) {
+            System.out.println("  fireExceptionCaught 未被业务 Handler 消费，调用方捕获: "
+                    + exception.getMessage());
+        }
         p.fireUserEventTriggered("自定义事件"); // 心跳等自定义事件走这里
         System.out.println("  fire* 系列：手动传播生命周期/异常/自定义事件");
 
-        channel.finish();
+        try {
+            // EmbeddedChannel 会暂存未处理异常；显式 checkException 才能看到它。
+            channel.checkException();
+        } catch (RuntimeException exception) {
+            System.out.println("  EmbeddedChannel.checkException 发现异常: " + exception.getMessage());
+        } finally {
+            channel.finishAndReleaseAll();
+        }
     }
 }

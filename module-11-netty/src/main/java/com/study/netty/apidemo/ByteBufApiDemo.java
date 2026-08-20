@@ -55,8 +55,9 @@ public class ByteBufApiDemo {
 
         // ---- 视图与拷贝 ----
         ByteBuf copy = buf.copy();        // 深拷贝：完全独立的新缓冲区
-        ByteBuf slice = buf.slice();      // 切片：共享内存、独立索引（零拷贝）
-        ByteBuf duplicate = buf.duplicate(); // 复制：共享内存、独立索引，整个缓冲区
+        // retainedSlice/retainedDuplicate 除了共享内存，还各自增加引用计数，便于示例最后分别释放。
+        ByteBuf slice = buf.retainedSlice();      // 切片：共享内存、独立索引（零拷贝）
+        ByteBuf duplicate = buf.retainedDuplicate(); // 复制：共享内存、独立索引，整个缓冲区
         System.out.println("  copy 独立=" + (copy != buf) + "，slice 可读=" + slice.readableBytes()
                 + "，duplicate 可读=" + duplicate.readableBytes());
         copy.release();
@@ -116,16 +117,21 @@ public class ByteBufApiDemo {
         System.out.println("  内存属性: hasArray=" + buf.hasArray()
                 + ", isDirect=" + buf.isDirect() + ", isReadable=" + buf.isReadable());
 
-        // ---- 其他不常用 ----
-        buf.writeZero(4);             // 写 4 个零字节
+        // ---- 其他不常用：先准备足够的数据，再演示不同宽度的读取 API ----
+        // 前面的查找和 discardReadBytes 可能已经消耗了可读区，不能假设当前还有足够字节。
+        buf.clear();
+        buf.writeZero(4);             // 写 4 个零字节，供 readUnsignedInt 读取
+        buf.writeInt(0x01020304);     // 再写 4 字节，供 readSlice/readMedium 继续读取
+        buf.writeMedium(0x050607);    // 写 3 字节 medium 类型数据
+        buf.writeBytes("xy".getBytes(CharsetUtil.UTF_8));
         buf.readUnsignedInt();        // 读无符号 int（0 ~ 2^32-1）
-        buf.readSlice(2);             // 读 2 字节并返回切片视图（零拷贝）
+        buf.readSlice(2);             // 读 2 字节并返回切片视图（零拷贝，视图不单独 release）
         buf.readMedium();             // 读 3 字节（medium）
-        buf.markWriterIndex();
-        buf.resetWriterIndex();
+        buf.markWriterIndex();        // 标记当前 writerIndex，适合回退到某个写入位置
+        buf.resetWriterIndex();       // 恢复到刚才的 writerIndex
         buf.forEachByteDesc(value -> value != 0); // 从后往前遍历
 
-        // 释放内存（池化缓冲必须释放！）
+        // 释放内存（池化缓冲必须释放！）。retainedSlice/retainedDuplicate 各自拥有一个引用计数。
         buf.release();
         slice.release();
         duplicate.release();

@@ -29,10 +29,10 @@ Java 21 + Spring Boot 3.5 多模块学习仓库：**从 Java 基础到 Spring Cl
 | [module-08-spring-cloud](module-08-spring-cloud) | Spring Cloud | OpenFeign 声明式调用、负载均衡、Resilience4j 熔断降级 |
 | [module-09-message-queue](module-09-message-queue) | 消息队列 | Kafka（内嵌 broker 开箱即用）+ RabbitMQ（按需启用）、生产消费、交换机路由 |
 | [module-10-spring-cloud-microservices](module-10-spring-cloud-microservices) | 微服务多服务演示 | Eureka 注册中心 + Gateway 网关 + 4 个独立服务、服务间 Feign 调用 |
-| [module-11-netty](module-11-netty) | Netty 网络编程 | API 方法用例（常用+不常用）、粘包拆包、心跳检测、群聊实操 |
+| [module-11-netty](module-11-netty) | Netty 网络编程 | ByteBuf、Pipeline、Codec 粘包拆包、TCP Echo/Heartbeat/IM、HTTP、UDP、WebSocket、SSL/TLS、EmbeddedChannel 测试 |
 | [module-12-multithreading](module-12-multithreading) | 多线程与并发 | Thread/线程池/锁/原子类/并发集合/CompletableFuture/虚拟线程 方法用例（常用+不常用）、生产者消费者、抢票、银行转账、高并发请求实操 |
 | [module-13-design-patterns](module-13-design-patterns) | 设计模式 | GoF 23 种模式用例（常用+不常用写法）、在线商城/审批流/文档导出实操 |
-| [module-14-spring-transaction](module-14-spring-transaction) | Spring 事务 | 声明式事务、事务回滚、传播行为（REQUIRED / REQUIRES_NEW / NESTED）、代理调用陷阱 |
+| [module-14-spring-transaction](module-14-spring-transaction) | Spring 事务 | 声明式事务、提交/回滚、七种传播行为、隔离级别、只读事务、超时、编程式事务、多线程事务、代理调用陷阱 |
 
 ## 🚀 快速开始
 
@@ -85,10 +85,12 @@ mvn test -Dtest='**/*UnitTest' -Dsurefire.failIfNoSpecifiedTests=false
 
 ## 📚 学习建议
 
+本仓库遵循[《学习内容规范》](学习规范.md)：每个知识点都应包含原理、执行流程、可运行示例、关键 API、常见陷阱和直接测试，目标是让你不依赖其他资料也能完成学习。
+
 1. **按编号顺序学习**：先打牢 Java 基础（module-01），再学 Spring Boot 基础（module-02），之后按 MVC → JPA → Security → AOP → 高级特性 → Cloud 逐步深入。
-2. **每个模块都有 README**：包含知识点讲解、代码导读、动手练习，建议边读边改代码。
-3. **善用测试**：每个模块都有测试用例，运行测试可以验证你的理解是否正确。
-4. **动手实验**：试着修改配置、增加接口、编写新的测试，实践是最好的学习方式。
+2. **先读模块目录再读源码**：每个模块 README 必须列出完整知识点和文件映射；如果目录与源码不一致，应优先补齐文档，而不是默认跳过。
+3. **善用测试**：优先阅读带 `@DisplayName` 的方法级测试，测试名称会说明输入、执行场景和预期结果；再阅读必要的框架集成测试。
+4. **动手实验**：试着修改配置、增加接口、编写新的测试，实践是最好的学习方式。每个模块 README 的练习题都应能在当前项目中独立完成。
 
 ## 📄 License
 

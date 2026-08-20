@@ -3,6 +3,7 @@ package com.study.netty.apidemo;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
@@ -136,10 +137,13 @@ public class BootstrapApiDemo {
         ChannelFuture future2 = bootstrap.connect("127.0.0.1", port);
         future2.addListener((GenericFutureListener<ChannelFuture>) f ->
                 System.out.println("  回调式连接: 成功=" + f.isSuccess()));
-        future2.sync().channel().close().sync(); // 演示用第二条连接，收完即关
+        future2.sync();
+        // 回调式连接只用于演示非阻塞监听；发起关闭即可，不在这里同步等待第二条连接。
+        future2.channel().close();
 
         // ---- 发送与接收 ----
-        clientChannel.writeAndFlush("hello netty").sync();
+        // Pipeline 没有 StringEncoder，因此这里显式把字符串编码成 ByteBuf 后再写出。
+        clientChannel.writeAndFlush(Unpooled.copiedBuffer("hello netty", CharsetUtil.UTF_8)).sync();
         String response = responses.poll(5, TimeUnit.SECONDS);
         System.out.println("  收到服务端回声: " + response);
 
