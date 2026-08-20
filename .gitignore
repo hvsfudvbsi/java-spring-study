@@ -27,3 +27,10 @@ Thumbs.db
 
 # ---- 编译产物 ----
 *.class
+
+# ---- 凭证与密钥（绝不提交）----
+.git-credentials
+.git_cr
+credentials
+*.token
+.env
