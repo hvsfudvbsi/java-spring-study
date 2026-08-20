@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.study</groupId>
+        <artifactId>java-spring-study</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <!--
+      Spring Boot + Netty 集成：演示"如何在 Tomcat 进程里利用 Netty"。
+      内嵌 Tomcat 处理 HTTP/REST（默认 8080），同 JVM 内再启动一个 Netty TCP
+      服务（默认 19090）处理长连接/高吞吐流量，两者共享 Spring Bean。
+      独立 Netty 进程的写法见 module-11-netty（纯 Java，无 Spring）。
+    -->
+    <artifactId>module-16-spring-boot-netty</artifactId>
+    <name>module-16-spring-boot-netty</name>
+    <description>Spring Boot 集成 Netty：Tomcat 进程内嵌 Netty TCP 服务，共享 Spring Bean</description>
+
+    <dependencies>
+        <!-- 内嵌 Tomcat：处理 HTTP/REST -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- netty-all：包含 Netty 全部模块，学习最方便（生产可按需引入子模块） -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>4.1.137.Final</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
