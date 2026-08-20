@@ -114,7 +114,7 @@ mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.ssl.S
 # 单进程内自动跑完：高并发连接演示 + 低并发/高并发两档压测对比
 mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.performance.PerformanceDemo
 
-# 可调参数（可选）：-Dperf.connectCount=3000 -Dperf.workers=4
+# 可调参数（可选）：-Dperf.connectCount=10000 -Dperf.workers=4
 #   -Dbench.connections=100 -Dbench.messages=300   （低并发档）
 #   -Dbench2.connections=3000 -Dbench2.messages=50 （高并发档）
 ```
@@ -350,8 +350,9 @@ Netty 的性能价值不是"单连接比阻塞 Socket 快"，而是**线程/资�
 实测结论（本机回环，数字仅供参考）：
 - **低并发**（如 100 连接）：阻塞模型线程开销小，甚至比 Netty 略快——Netty 有事件分发与对象分配开销；
 - **高并发**（如 3000 连接）：阻塞模型线程数 = 连接数，上下文切换/调度成为瓶颈，Netty 固定线程反超；
-- **资源可扩展性**：3000 连接对阻塞模型约 3000 个线程（约 3GB 栈内存），对 Netty 只是 5 个固定线程；
-- 第一部分还会演示 Netty 用 5 个线程保持 3000 个并发连接，连接仍可正常收发。
+- **资源可扩展性**：10000 连接对阻塞模型约 10000 个线程（约 10GB 栈内存），对 Netty 只是 5 个固定线程；
+- 第一部分还会演示 Netty 用 5 个线程保持 10000 个并发连接（抽查首尾连接仍可收发）；
+- 单客户端回环受系统临时端口范围限制（本机约 2.8 万个），真实环境多客户端/多 IP 下 Netty 可撑到数万~十万级连接。
 
 理解与选型：Netty 适合**海量长连接、高并发**场景（IM、推送、网关、代理）；简单的低并发请求-响应服务，阻塞模型够用且更直接。回环压测数据不代表真实网络性能，仅用于理解线程模型差异。
 

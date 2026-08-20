@@ -32,7 +32,7 @@ import java.util.List;
  */
 public class PerformanceDemo {
 
-    private static final int CONNECT_COUNT = Integer.getInteger("perf.connectCount", 3000);
+    private static final int CONNECT_COUNT = Integer.getInteger("perf.connectCount", 10000);
     private static final int NETTY_WORKERS = Integer.getInteger("perf.workers", 4);
 
     private static final int LOW_CONNECTIONS = Integer.getInteger("bench.connections", 100);
@@ -69,14 +69,13 @@ public class PerformanceDemo {
             System.out.println("  结论: " + held.size() + " 个并发连接只需 " + ioThreads
                     + " 个线程轮流处理（NIO 多路复用）；");
             System.out.println("        阻塞模型每连接一线程则需要约 " + held.size()
-                    + " 个线程（每个约 1MB 栈空间）。");
+                    + " 个线程（每个约 1MB 栈空间，约 " + held.size() / 1000 + "GB）。");
+            System.out.println("  说明: 单客户端回环受系统临时端口范围限制（本机约 2.8 万个端口），");
+            System.out.println("        真实环境多客户端/多 IP 下 Netty 可撑到数万~十万级连接。");
 
-            // 抽查连接仍然可用
-            Socket probe = held.get(0);
-            OutputStream out = probe.getOutputStream();
-            out.write("alive\n".getBytes(StandardCharsets.UTF_8));
-            out.flush();
-            System.out.println("  抽查第 1 个连接写入 'alive' 无异常，连接仍可收发");
+            // 抽查首尾连接仍然可用
+            probe(held.get(0), "第 1 个");
+            probe(held.get(held.size() - 1), "最后 1 个");
         } finally {
             for (Socket socket : held) {
                 socket.close();
@@ -132,6 +131,14 @@ public class PerformanceDemo {
         System.out.println("  3. 更本质的差距在资源可扩展性：3000 连接对阻塞模型是约 3000 个线程"
                 + "（约 3GB 栈内存），对 Netty 只是 5 个固定线程；");
         System.out.println("  4. 回环数据走内核内存，吞吐远高于真实网络，数字仅用于对比教学。");
+    }
+
+    /** 向一个已建立连接写入一行文本，验证连接仍可收发。 */
+    private static void probe(Socket socket, String label) throws IOException {
+        OutputStream out = socket.getOutputStream();
+        out.write("alive\n".getBytes(StandardCharsets.UTF_8));
+        out.flush();
+        System.out.println("  抽查" + label + "连接写入 'alive' 无异常，连接仍可收发");
     }
 
     /** 找一个空闲 TCP 端口。 */
