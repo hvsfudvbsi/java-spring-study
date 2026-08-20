@@ -5,6 +5,7 @@ import com.study.network.packet.IpHeader;
 import com.study.network.packet.PacketParser;
 import com.study.network.packet.TcpHeader;
 import com.study.network.packet.UdpHeader;
+import com.study.network.protocol.TcpStateMachine;
 import com.study.network.protocol.TransportProtocol;
 import com.study.network.socket.TcpStickyPacketDemo;
 
@@ -20,7 +21,8 @@ import com.study.network.socket.TcpStickyPacketDemo;
  *   4. IPv4 首部编码与解析（版本/IHL/地址）
  *   5. 以太网帧头 14 字节
  *   6. 完整报文分层解析（以太网 -> IP -> TCP）
- *   7. TCP 粘包 vs UDP 有边界演示
+ *   7. TCP 三次握手/四次挥手状态机演示
+ *   8. TCP 粘包 vs UDP 有边界演示
  */
 public class Main {
 
@@ -73,7 +75,11 @@ public class Main {
         System.out.println("  负载 " + parsed.payloadLength() + " 字节");
         System.out.println();
 
-        // 7. TCP 粘包 vs UDP 有边界
+        // 7. TCP 三次握手 / 四次挥手状态机
+        TcpStateMachine.printHandshakeDemo();
+        System.out.println();
+
+        // 8. TCP 粘包 vs UDP 有边界
         TcpStickyPacketDemo.main(new String[]{});
     }
 

@@ -52,13 +52,14 @@ class SocketIntegrationTest {
     }
 
     @Test
-    @DisplayName("TCP 粘包演示：发送 3 条消息但接收方 read 次数小于 3（无边界）")
+    @DisplayName("TCP 无消息边界：read 次数无法预测（可能粘包/拆包），但字节内容完整")
     void tcpStickyPackets() throws Exception {
         List<String> received = TcpStickyPacketDemo.runTcp();
-        // TCP 是字节流，3 条消息可能被合并成更少的 read（本地回环通常 1 次读完全部）
+        // TCP 是字节流：3 条消息可能合并成 1~2 次 read（粘包），也可能恰好 3 次——
+        // 关键是不能像 UDP 那样断言"恰好 3 次"，这正是"无边界"的本质。
         assertFalse(received.isEmpty());
-        assertTrue(received.size() < 3, "TCP 无消息边界，3 条消息不应被拆成 3 次独立 read，实际 " + received.size());
-        // 但字节内容完整（粘包 ≠ 丢数据）
+        assertTrue(received.size() <= 3, "read 次数不应超过发送次数，实际 " + received.size());
+        // 但字节内容完整（粘包/拆包 ≠ 丢数据）
         String all = String.join("", received);
         assertTrue(all.contains("消息一") && all.contains("消息二") && all.contains("消息三"),
                 "粘包只是边界丢失，数据本身应完整，实际: " + all);

@@ -105,9 +105,7 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.s
 - **TCP 是字节流**：内核把数据拼成连续的字节，不保留应用层的"消息"边界。发送方 `write` 3 次，接收方 `read` 可能 1 次读到全部（粘包）、也可能 1 条被拆成多次（拆包）。
 - **UDP 是数据报**：内核按数据报为单位收发，一次 `send` 对应一次 `receive`，天然有边界。
 
-所以 TCP 应用层必须自定义帧格式（定长/分隔符/长度字段），这正是 Netty `LengthFieldBasedFrameDecoder` 等解码器解决的问题（见 module-11-netty）。
-
-### 4. 三次握手与四次挥手（配合首部理解）
+所以 TCP 应用层必须自定义帧格式（定长/分隔符/长度字段），这正是 Netty `LengthFieldBasedFrameDecoder` 等解码器解决的问题（见 module-11-netty）。### 4. 三次握手与四次挥手（配合首部理解）
 
 ```text
 三次握手（建立连接）:  Client -> SYN        Server
@@ -117,10 +115,27 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.s
 四次挥手（释放连接）:  Client -> FIN        Server
                       Client <- ACK        Server
                       Client <- FIN        Server
-                      Client -> ACK        Server
+                      Client -> ACK         Server
 ```
 
-本模块的 `TcpHeader` 可构造 SYN/FIN/ACK 报文观察标志位；完整握手流程用 `tcpdump`/Wireshark 抓包（或 `curl -v`）更直观。
+**状态机视角**（`protocol/TcpStateMachine`，RFC 793 全部 11 个状态）：
+
+```text
+三次握手:  客户端 CLOSED -> SYN_SENT -> ESTABLISHED
+          服务端 CLOSED -> LISTEN -> SYN_RECEIVED -> ESTABLISHED
+
+四次挥手:  主动方 ESTABLISHED -> FIN_WAIT_1 -> FIN_WAIT_2 -> TIME_WAIT -> CLOSED
+          被动方 ESTABLISHED -> CLOSE_WAIT -> LAST_ACK -> CLOSED
+
+同时关闭:  FIN_WAIT_1 -> CLOSING -> TIME_WAIT -> CLOSED
+```
+
+关键理解：
+- **TIME_WAIT 只属于主动关闭方**：等待 2MSL（2 倍报文最大生存时间）确保最后一个 ACK 到达，然后才真正 CLOSED。
+- **被动关闭方没有 FIN_WAIT/TIME_WAIT**：收到 FIN 回 ACK 后进入 CLOSE_WAIT，等应用层关闭后发 FIN 进 LAST_ACK，收到 ACK 即 CLOSED。
+- 状态机拒绝非法转换：如 ESTABLISHED 再收 SYN、CLOSED 直接收 FIN 都会抛 `IllegalStateException`。
+
+本模块的 `TcpHeader` 可构造 SYN/FIN/ACK 报文观察标志位，`TcpStateMachine` 可模拟完整状态流转；真实抓包用 `tcpdump`/Wireshark（或 `curl -v`）。
 
 ## 🧪 测试
 
@@ -132,9 +147,10 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.s
 | `EthernetFrameTest`（4） | 14 字节帧头、MAC 地址转换、EtherType | 真实网卡 |
 | `PacketParserTest`（3） | 完整报文 TCP/UDP 分层解析、未知协议拒绝 | 真实抓包 |
 | `TransportProtocolTest`（4） | TCP/UDP 属性与首部长度对比、协议号反查 | — |
+| `TcpStateMachineTest`（12） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、非法转换拒绝 | 真实网络时序 |
 | `SocketIntegrationTest`（4） | **真实回环** TCP/UDP 回显、粘包 vs 有边界 | 跨主机网络 |
 
-> 共 29 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 41 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -151,6 +167,7 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.s
 3. 给 `TcpEchoServer` 加 `LineBasedFrameDecoder` 思维：用分隔符协议解决粘包（提示：参考 module-11 的 `DelimiterBasedFrameDecoder`）。
 4. 用 `tcpdump -i lo port 19001` 抓包观察三次握手，对照 `TcpHeader` 的标志位。
 5. 扩展 `TransportProtocol` 增加 ICMP 枚举（协议号 1），说明为什么它既不是 TCP 也不是 UDP。
+6. 给 `TcpStateMachine` 增加 `RST` 事件（连接重置）：ESTABLISHED + RST → 直接 CLOSED，补测试。
 
 ## 📄 关联模块
 
