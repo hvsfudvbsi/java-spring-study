@@ -29,6 +29,16 @@ public class AccountRepository {
                 amount, accountId);
     }
 
+    public Account findById(Long accountId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT id, owner, balance FROM bank_account WHERE id = ?",
+                (rs, rowNum) -> new Account(
+                        rs.getLong("id"),
+                        rs.getString("owner"),
+                        rs.getBigDecimal("balance")),
+                accountId);
+    }
+
     public List<Account> findAll() {
         return jdbcTemplate.query(
                 "SELECT id, owner, balance FROM bank_account ORDER BY id",
@@ -36,6 +46,10 @@ public class AccountRepository {
                         rs.getLong("id"),
                         rs.getString("owner"),
                         rs.getBigDecimal("balance")));
+    }
+
+    public void setBalance(Long accountId, BigDecimal balance) {
+        jdbcTemplate.update("UPDATE bank_account SET balance = ? WHERE id = ?", balance, accountId);
     }
 
     public void resetBalances() {

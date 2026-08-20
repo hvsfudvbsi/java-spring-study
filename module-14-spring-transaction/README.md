@@ -11,8 +11,19 @@
 | `service/TransactionWorker` | 被代理的内层事务方法：`REQUIRED`、`REQUIRES_NEW`、`NESTED`、`SUPPORTS`、`NOT_SUPPORTED`、`MANDATORY`、`NEVER` |
 | `repository/AccountRepository` | JdbcTemplate 更新账户余额 |
 | `repository/TransactionLogRepository` | 写入、查询事务日志，直观看到最终提交结果 |
+| `TransferService` | 正常提交、运行时异常回滚、受检异常默认不回滚 |
+| `IsolationService` | `REPEATABLE_READ`、`readOnly`、`timeout` 属性示例 |
+| `ProgrammaticTxService` | `TransactionTemplate` 编程式事务提交和回滚 |
+| `MultiThreadTxService` | 多线程分别开启事务执行并发转账 |
+| `TxInvalidService` | 非法账户、金额和余额场景 |
 | `TransactionWorkerUnitTest` | 直接调用每种内层事务方法的 `@Test` 单元测试 |
 | `TransactionPropagationServiceUnitTest` | 直接测试外层编排方法和异常分支 |
+| `TransferServiceTest` | 直接调用转账 Service，使用 `@DisplayName` 展示演示 1～3 |
+| `IsolationServiceTest` | 直接调用隔离级别、只读和超时方法，使用 `@DisplayName` 展示演示 15a～15c |
+| `ProgrammaticTxServiceTest` | 直接调用编程式事务方法，验证提交和回滚 |
+| `PropagationServiceTest` | 直接调用七种传播行为方法，使用 `@DisplayName` 展示演示 4～10 |
+| `MultiThreadTxServiceTest` | 直接调用多线程事务方法，验证并发转账结果 |
+| `TxInvalidServiceTest` | 直接调用非法场景 Service 方法，验证异常类型 |
 | `TransactionServiceTest` | 用 Spring 集成测试验证真实提交、回滚、挂起和保存点行为 |
 
 ## 🚀 运行与测试
@@ -21,7 +32,7 @@
 # 启动（H2 内存库，无需安装数据库）
 mvn spring-boot:run -pl module-14-spring-transaction
 
-# 测试
+# 测试（包含直接调用 Service 方法的 @Test 用例和事务集成测试）
 mvn test -pl module-14-spring-transaction
 ```
 
@@ -98,7 +109,7 @@ curl http://localhost:8080/api/transactions/logs
 6. **MANDATORY**：强制要求调用方已经存在事务。直接在无事务环境调用会抛 `IllegalTransactionStateException`，放在外层事务中则正常加入。
 7. **NEVER**：强制要求调用方不存在事务。无事务调用可以执行，在事务中调用会抛 `IllegalTransactionStateException`，并导致外层回滚。
 
-> 注意：纯单元测试直接验证方法逻辑和异常分支；传播行为真正依赖 Spring AOP 代理，因此提交、回滚、事务挂起和保存点必须再由 Spring 集成测试验证。
+> 注意：本模块的测试不通过 Controller/API 发起请求，而是直接调用 Service 方法。`@DisplayName` 用于把每个事务演示点展示为独立测试。传播行为真正依赖 Spring AOP 代理，因此提交、回滚、事务挂起和保存点由 `@SpringBootTest` 直接调用 Bean 方法进行验证；Mockito 单元测试则只验证方法编排。
 
 ### 3. `@Transactional` 常见属性
 
