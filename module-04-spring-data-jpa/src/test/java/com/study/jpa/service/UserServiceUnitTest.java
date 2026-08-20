@@ -5,6 +5,7 @@ import com.study.jpa.entity.User;
 import com.study.jpa.repository.OrderRepository;
 import com.study.jpa.repository.UserRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -35,6 +36,7 @@ class UserServiceUnitTest {
     }
 
     @Test
+    @DisplayName("创建用户+订单：两个实体都被保存且订单关联用户")
     void createUserWithOrderShouldBuildBothEntities() {
         when(userRepository.save(any(User.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -55,6 +57,7 @@ class UserServiceUnitTest {
     }
 
     @Test
+    @DisplayName("订单金额为零时抛出 IllegalArgumentException 拒绝创建")
     void nonPositiveOrderAmountShouldRejectRequest() {
         when(userRepository.save(any(User.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
@@ -68,6 +71,7 @@ class UserServiceUnitTest {
     }
 
     @Test
+    @DisplayName("搜索关键字直接委托给 Repository 的忽略大小写模糊查询")
     void searchShouldDelegateToRepository() {
         List<User> users = List.of(new User("张三", "zhangsan@example.com", 20));
         when(userRepository.findByNameContainingIgnoreCase("张")).thenReturn(users);
@@ -77,6 +81,7 @@ class UserServiceUnitTest {
     }
 
     @Test
+    @DisplayName("更新已存在用户：修改托管实体的邮箱和姓名")
     void updateUserEmailShouldChangeManagedEntity() {
         User user = new User("旧名字", "old@example.com", 20);
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
@@ -88,6 +93,7 @@ class UserServiceUnitTest {
     }
 
     @Test
+    @DisplayName("更新不存在的用户抛出 NoSuchElementException")
     void updateMissingUserShouldThrow() {
         when(userRepository.findById(1L)).thenReturn(Optional.empty());
 

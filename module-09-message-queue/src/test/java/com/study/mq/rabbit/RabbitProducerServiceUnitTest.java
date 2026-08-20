@@ -2,6 +2,7 @@ package com.study.mq.rabbit;
 
 import com.study.mq.config.RabbitConfig;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 
@@ -21,6 +22,7 @@ class RabbitProducerServiceUnitTest {
     }
 
     @Test
+    @DisplayName("发送消息使用配置的交换机与路由键")
     void sendShouldUseConfiguredExchangeAndRoutingKey() {
         producerService.send("hello-rabbit");
 
