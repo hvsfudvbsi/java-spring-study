@@ -2,7 +2,7 @@
 
 Java 21 + Spring Boot 3.5 多模块学习仓库：**从 Java 基础到 Spring Cloud 的一站式学习路径**。
 
-> 外层仅是一个目录（父 POM），内层是 13 个相互独立的学习模块，每个模块聚焦一个主题，可单独编译、测试、运行。
+> 外层仅是一个目录（父 POM），内层是 14 个相互独立的学习模块，每个模块聚焦一个主题，可单独编译、测试、运行。
 
 ## 📦 技术栈
 
@@ -32,6 +32,7 @@ Java 21 + Spring Boot 3.5 多模块学习仓库：**从 Java 基础到 Spring Cl
 | [module-11-netty](module-11-netty) | Netty 网络编程 | API 方法用例（常用+不常用）、粘包拆包、心跳检测、群聊实操 |
 | [module-12-multithreading](module-12-multithreading) | 多线程与并发 | Thread/线程池/锁/原子类/并发集合/CompletableFuture/虚拟线程 方法用例（常用+不常用）、生产者消费者、抢票、银行转账、高并发请求实操 |
 | [module-13-design-patterns](module-13-design-patterns) | 设计模式 | GoF 23 种模式用例（常用+不常用写法）、在线商城/审批流/文档导出实操 |
+| [module-14-spring-transaction](module-14-spring-transaction) | Spring 事务 | 声明式事务、事务回滚、传播行为（REQUIRED / REQUIRES_NEW / NESTED）、代理调用陷阱 |
 
 ## 🚀 快速开始
 

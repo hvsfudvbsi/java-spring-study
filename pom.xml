@@ -42,6 +42,7 @@
         <module>module-11-netty</module>
         <module>module-12-multithreading</module>
         <module>module-13-design-patterns</module>
+        <module>module-14-spring-transaction</module>
     </modules>
 
     <properties>
