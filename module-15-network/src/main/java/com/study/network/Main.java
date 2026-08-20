@@ -1,6 +1,7 @@
 package com.study.network;
 
 import com.study.network.packet.EthernetFrame;
+import com.study.network.packet.IcmpHeader;
 import com.study.network.packet.IpHeader;
 import com.study.network.packet.PacketParser;
 import com.study.network.packet.TcpHeader;
@@ -20,7 +21,8 @@ import com.study.network.socket.TcpStickyPacketDemo;
  *   3. UDP 首部 8 字节编码与解析
  *   4. IPv4 首部编码与解析（版本/IHL/地址）
  *   5. 以太网帧头 14 字节
- *   6. 完整报文分层解析（以太网 -> IP -> TCP）
+ *   5.1 ICMP 首部（ping 请求，类型/代码/校验和）
+ *   6. 完整报文分层解析（以太网 -> IP -> TCP/UDP/ICMP）
  *   7. TCP 三次握手/四次挥手状态机演示
  *   8. TCP 粘包 vs UDP 有边界演示
  */
@@ -63,6 +65,14 @@ public class Main {
                 EthernetFrame.parseMac("AA:BB:CC:DD:EE:FF"),
                 EthernetFrame.ETHERTYPE_IPV4);
         System.out.println("以太网帧头 " + frame.encode().length + " 字节: " + frame);
+        System.out.println();
+
+        // 5.1 ICMP 首部：ping 请求（类型 8）
+        IcmpHeader icmp = new IcmpHeader(IcmpHeader.TYPE_ECHO_REQUEST, 0,
+                0xABCD, 0x0001, 1);
+        byte[] icmpBytes = icmp.encode();
+        System.out.println("ICMP 首部 " + icmpBytes.length + " 字节: " + icmp);
+        System.out.println("解析回: " + IcmpHeader.parse(icmpBytes));
         System.out.println();
 
         // 6. 完整报文分层解析：以太网(14) + IP(20) + TCP(20) + 负载

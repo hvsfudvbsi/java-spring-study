@@ -83,6 +83,30 @@ class PacketParserTest {
     }
 
     @Test
+    @DisplayName("以太网+IP+ICMP 报文：协议号 1 分派到 ICMP（ping 请求）")
+    void parseIcmpPacketLayers() {
+        EthernetFrame eth = new EthernetFrame(
+                EthernetFrame.parseMac("00:11:22:33:44:55"),
+                EthernetFrame.parseMac("66:77:88:99:AA:BB"),
+                EthernetFrame.ETHERTYPE_IPV4);
+        IpHeader ip = new IpHeader(4, 5, 20 + 8, 1, 64,
+                IpHeader.PROTOCOL_ICMP, 0,
+                IpHeader.parseIp("192.168.1.10"), IpHeader.parseIp("8.8.8.8"));
+        IcmpHeader icmp = new IcmpHeader(IcmpHeader.TYPE_ECHO_REQUEST, 0,
+                0x1234, 0x0001, 1);
+
+        byte[] frame = concat(eth.encode(), ip.encode(), icmp.encode());
+        PacketParser.ParsedPacket parsed = PacketParser.parse(frame);
+
+        assertEquals(IpHeader.PROTOCOL_ICMP, parsed.ip().protocol());
+        assertTrue(parsed.isIcmp());
+        IcmpHeader parsedIcmp = (IcmpHeader) parsed.transport();
+        assertEquals(IcmpHeader.TYPE_ECHO_REQUEST, parsedIcmp.type(), "ping 请求类型 8");
+        assertEquals(0, parsedIcmp.code());
+        assertEquals(0, parsed.payloadLength(), "无负载时 ICMP 数据为 0 字节");
+    }
+
+    @Test
     @DisplayName("未知协议号抛 IllegalArgumentException")
     void parseRejectsUnknownProtocol() {
         IpHeader ip = new IpHeader(4, 5, 20 + 20, 1, 64, 99, 0, 0, 0);

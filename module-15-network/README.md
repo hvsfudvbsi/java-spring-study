@@ -13,7 +13,8 @@
 | `packet/IpHeader` | 网络层 IPv4 首部：版本(4 bit) + IHL(4 bit) 挤同一字节、总长度、TTL、协议号、源/目的 IP | 20 字节最小（IHL×4） |
 | `packet/TcpHeader` | 传输层 TCP 首部：源/目的端口、序号、确认号、**数据偏移(4 bit)+标志位(9 bit)**、窗口 | 20 字节最小 |
 | `packet/UdpHeader` | 传输层 UDP 首部：源/目的端口、长度、校验和 | 8 字节固定 |
-| `packet/PacketParser` | 完整报文分层解析：以太网 → IP → TCP/UDP → 负载（模拟 Wireshark 逐层剥离） | — |
+| `packet/IcmpHeader` | 网络层 ICMP 首部：**类型/代码/校验和**/标识/序号（ping 的报文） | 8 字节固定 |
+| `packet/PacketParser` | 完整报文分层解析：以太网 → IP → TCP/UDP/ICMP → 负载（模拟 Wireshark 逐层剥离） | — |
 
 **首部长度速记**：以太网 14 < UDP 8？不——UDP 8 字节是首部，以太网 14 字节是帧头，两者不同层。同层对比：**TCP 20+ vs UDP 8**。
 
@@ -114,7 +115,20 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.s
 接收:  累积字节流 -> 长度头不足等 4 字节 -> 内容不足等补齐 -> 完整帧产出
 ```
 
-`FrameDecoder` 累积缓冲正确处理粘包（一批多帧一次产出）、拆包（半帧等待）、长度头被拆（等够 4 字节）。这正是 Netty `LengthFieldBasedFrameDecoder` 的思路（见 module-11-netty）。### 4. 三次握手与四次挥手（配合首部理解）
+`FrameDecoder` 累积缓冲正确处理粘包（一批多帧一次产出）、拆包（半帧等待）、长度头被拆（等够 4 字节）。这正是 Netty `LengthFieldBasedFrameDecoder` 的思路（见 module-11-netty）。### 4. ICMP：网络层的控制报文（ping 就是它）
+
+ICMP 首部 8 字节：`[类型(8)][代码(8)][校验和(16)][标识(16)][序号(16)]`。
+
+| 类型 | 含义 | 典型场景 |
+|------|------|---------|
+| 0 | Echo Reply（回显应答） | ping 成功返回 |
+| 3 | Destination Unreachable | 目的不可达 |
+| 8 | Echo Request（回显请求） | ping 发起 |
+| 11 | Time Exceeded（超时） | TTL 耗尽，traceroute 利用它 |
+
+关键理解：ICMP 封装在 IP 数据报里（IP 协议号 = 1），但它**不是传输层协议**——没有端口号、不承载应用数据，只是网络层的控制/诊断报文。`PacketParser` 按协议号分派：1=ICMP、6=TCP、17=UDP。
+
+### 5. 三次握手与四次挥手（配合首部理解）
 
 ```text
 三次握手（建立连接）:  Client -> SYN        Server
@@ -154,14 +168,15 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.s
 | `UdpHeaderTest`（3） | 8 字节固定、大端字节序、负载长度计算 | 丢包/乱序 |
 | `IpHeaderTest`（5） | 版本+IHL 位字段、点分十进制互转、IP 每段 0~255 校验 | 路由/分片 |
 | `EthernetFrameTest`（4） | 14 字节帧头、MAC 地址转换、EtherType | 真实网卡 |
-| `PacketParserTest`（3） | 完整报文 TCP/UDP 分层解析、未知协议拒绝 | 真实抓包 |
+| `IcmpHeaderTest`（6） | ping 请求/回复往返、字段位置、类型名称、偏移解析 | 真实 ping 抓包 |
+| `PacketParserTest`（4） | 完整报文 TCP/UDP/**ICMP** 分层解析、未知协议拒绝 | 真实抓包 |
 | `TransportProtocolTest`（4） | TCP/UDP 属性与首部长度对比、协议号反查 | — |
 | `TcpStateMachineTest`（12） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、非法转换拒绝 | 真实网络时序 |
 | `SocketIntegrationTest`（4） | **真实回环** TCP/UDP 回显、粘包 vs 有边界 | 跨主机网络 |
 | `FrameCodecTest`（9） | 长度头编码、粘包多帧、拆包等待、长度头分批、非法超长拒绝 | 真实网络 |
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 
-> 共 54 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 61 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -177,8 +192,8 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.s
 2. 用 `PacketParser` 构造一个"IP + UDP + DNS 查询"报文，断言解析出 `destinationPort=53`。
 3. 给 `FramedTcpServer` 增加协议版本号：帧头改为 `[1 字节版本][4 字节长度][内容]`，不匹配的版本直接断开（提示：改 `FrameCodec.encode/decode` 并补测试）。
 4. 用 `tcpdump -i lo port 19001` 抓包观察三次握手，对照 `TcpHeader` 的标志位。
-5. 扩展 `TransportProtocol` 增加 ICMP 枚举（协议号 1），说明为什么它既不是 TCP 也不是 UDP。
-6. 给 `TcpStateMachine` 增加 `RST` 事件（连接重置）：ESTABLISHED + RST → 直接 CLOSED，补测试。
+5. 给 `TcpStateMachine` 增加 `RST` 事件（连接重置）：ESTABLISHED + RST → 直接 CLOSED，补测试。
+6. 给 `IcmpHeader` 增加校验和计算：`checksum = 反码和(首部 + 数据)`，构造合法校验和并验证往返一致。
 
 ## 📄 关联模块
 

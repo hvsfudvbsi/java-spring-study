@@ -5,14 +5,14 @@ package com.study.network.packet;
  *
  * 数据封装顺序（发送方）：
  * <pre>
- *   应用数据 -> TCP/UDP 首部 -> IP 首部 -> 以太网帧头 -> 网线
+ *   应用数据 -> TCP/UDP/ICMP 首部 -> IP 首部 -> 以太网帧头 -> 网线
  * </pre>
  * 数据解封装顺序（接收方）：
  * <pre>
- *   网线 -> 以太网帧头 -> IP 首部 -> TCP/UDP 首部 -> 应用数据
+ *   网线 -> 以太网帧头 -> IP 首部 -> TCP/UDP/ICMP 首部 -> 应用数据
  * </pre>
  *
- * 本类演示"从最外层剥到最内层"的解析过程，配合 TcpHeader/IpHeader 等理解
+ * 本类演示"从最外层剥到最内层"的解析过程，配合 TcpHeader/UdpHeader/IcmpHeader 等理解
  * 每一层的首部字段和首部长度。
  */
 public class PacketParser {
@@ -27,6 +27,10 @@ public class PacketParser {
 
         public boolean isUdp() {
             return transport instanceof UdpHeader;
+        }
+
+        public boolean isIcmp() {
+            return transport instanceof IcmpHeader;
         }
     }
 
@@ -43,7 +47,7 @@ public class PacketParser {
         IpHeader ip = IpHeader.parse(frame, offset);
         offset += ip.headerLength();
 
-        // 第 3 层：按协议号分派到 TCP 或 UDP
+        // 第 3 层：按协议号分派到 TCP / UDP / ICMP
         Object transport;
         int payloadLength;
         if (ip.protocol() == IpHeader.PROTOCOL_TCP) {
@@ -54,6 +58,11 @@ public class PacketParser {
             UdpHeader udp = UdpHeader.parse(frame, offset);
             transport = udp;
             payloadLength = udp.payloadLength();
+        } else if (ip.protocol() == IpHeader.PROTOCOL_ICMP) {
+            // ICMP 首部固定 8 字节；负载是诊断数据（如 ping 的时间戳）
+            IcmpHeader icmp = IcmpHeader.parse(frame, offset);
+            transport = icmp;
+            payloadLength = frame.length - offset - IcmpHeader.HEADER_LENGTH;
         } else {
             throw new IllegalArgumentException("不支持的协议号: " + ip.protocol());
         }

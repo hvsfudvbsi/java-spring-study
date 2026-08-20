@@ -33,6 +33,8 @@ public class IpHeader {
     /** 无选项时 IPv4 首部固定 20 字节 */
     public static final int FIXED_HEADER_LENGTH = 20;
 
+    /** 协议号：ICMP（网络层控制报文，如 ping） */
+    public static final int PROTOCOL_ICMP = 1;
     /** 协议号：TCP */
     public static final int PROTOCOL_TCP = 6;
     /** 协议号：UDP */
