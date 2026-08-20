@@ -60,6 +60,7 @@ public class ChatServer {
                                     new LineBasedFrameDecoder(64 * 1024),
                                     new StringDecoder(CharsetUtil.UTF_8), // 入站：按行字节 -> 字符串
                                     new StringEncoder(CharsetUtil.UTF_8), // 出站：字符串 -> 字节
+                                    new ChatLineEncoder(),                 // 出站：每条消息补换行符，客户端才能按行还原
                                     new ChatServerHandler());              // 业务处理
                         }
                     });

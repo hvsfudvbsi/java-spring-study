@@ -287,6 +287,7 @@ TLS Handler 必须放在业务协议 Handler 前面：
 - `channelActive`：设置默认昵称、加入群组、发送欢迎消息。
 - `channelRead0`：处理 `NICK:` 改名、`@昵称 内容` 私聊、`quit` 退出和普通广播消息。
 - 私聊实现：解析 `@昵称 内容` 后**遍历在线用户匹配昵称属性**，只向目标 Channel 写入并给发送者回执；目标不在线或格式错误时提示发送者，不广播给其他人。
+- 协议对称（按行传输）：客户端发送时每条消息带换行符，服务端用 `LineBasedFrameDecoder` 按行解码；服务端出站由 `ChatLineEncoder` 给每条消息补换行符，客户端同样按行解码——TCP 粘包时双方都能逐条还原消息。
 - `channelInactive`：移出群组并广播离线通知。
 - `AttributeKey` 把昵称附加到 Channel，避免把连接状态放进不安全的全局 Map；私聊正是通过遍历 `channels` 读取每个连接的昵称属性来定向。
 - 测试 EmbeddedChannel 多连接时必须使用不同 ChannelId；默认 EmbeddedChannel 可能共享 ID，ChannelGroup 会把连接误认为同一个。

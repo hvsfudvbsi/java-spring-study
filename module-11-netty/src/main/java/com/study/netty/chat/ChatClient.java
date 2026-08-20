@@ -7,6 +7,7 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.handler.codec.LineBasedFrameDecoder;
 import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
 import io.netty.util.CharsetUtil;
@@ -14,6 +15,7 @@ import io.netty.util.CharsetUtil;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 实操示例三：群聊客户端（完整项目）
@@ -40,6 +42,8 @@ public class ChatClient {
                         @Override
                         protected void initChannel(SocketChannel ch) {
                             ch.pipeline().addLast(
+                                    // 与服务端约定按行传输：先恢复消息边界，避免 TCP 粘包时多条消息拼成一个字符串。
+                                    new LineBasedFrameDecoder(64 * 1024),
                                     new StringDecoder(CharsetUtil.UTF_8),
                                     new StringEncoder(CharsetUtil.UTF_8),
                                     new ChatClientHandler());
@@ -56,6 +60,8 @@ public class ChatClient {
                 // 与服务端 LineBasedFrameDecoder 配套：一行输入必须带换行符才能形成完整消息。
                 channel.writeAndFlush(line + System.lineSeparator());
                 if ("quit".equalsIgnoreCase(line.trim())) {
+                    // 等服务端发送"再见"并主动关闭连接（最多 3 秒兜底），确保收下最后一条消息再退出。
+                    channel.closeFuture().await(3, TimeUnit.SECONDS);
                     break;
                 }
             }

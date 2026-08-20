@@ -1,5 +1,6 @@
 package com.study.netty;
 
+import com.study.netty.chat.ChatLineEncoder;
 import com.study.netty.chat.ChatServerHandler;
 import com.study.netty.heartbeat.HeartbeatServer;
 import com.study.netty.http.HttpServerHandler;
@@ -14,6 +15,7 @@ import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.util.concurrent.ImmediateEventExecutor;
 import io.netty.handler.codec.LineBasedFrameDecoder;
 import io.netty.handler.codec.string.StringDecoder;
+import io.netty.handler.codec.string.StringEncoder;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpHeaderNames;
@@ -463,6 +465,31 @@ class ProtocolHandlerTest {
         assertEquals("[系统] Alice 离开了聊天室（当前在线 1 人）", readOutboundEventually(second));
         first.finishAndReleaseAll();
         second.finishAndReleaseAll();
+    }
+
+    @Test
+    @DisplayName("群聊出站编码器：每条消息补换行符，客户端按行解码可逐条还原（防粘包）")
+    void chatLineEncoderShouldFrameMessages() {
+        // 服务端出站链路：String -> String+换行 -> ByteBuf
+        EmbeddedChannel serverOut = new EmbeddedChannel(
+                new StringEncoder(CharsetUtil.UTF_8), new ChatLineEncoder());
+        serverOut.writeOutbound("第一条");
+        serverOut.writeOutbound("第二条");
+        ByteBuf framed1 = serverOut.readOutbound();
+        ByteBuf framed2 = serverOut.readOutbound();
+        assertEquals("第一条\n", framed1.toString(CharsetUtil.UTF_8));
+        assertEquals("第二条\n", framed2.toString(CharsetUtil.UTF_8));
+        framed1.release();
+        framed2.release();
+        serverOut.finishAndReleaseAll();
+
+        // 客户端入站链路：多条消息一次到达（TCP 粘包），按行解码后逐条还原
+        EmbeddedChannel clientIn = new EmbeddedChannel(
+                new LineBasedFrameDecoder(1024), new StringDecoder(CharsetUtil.UTF_8));
+        clientIn.writeInbound(Unpooled.copiedBuffer("第一条\n第二条\n", CharsetUtil.UTF_8));
+        assertEquals("第一条", clientIn.<String>readInbound());
+        assertEquals("第二条", clientIn.<String>readInbound());
+        clientIn.finishAndReleaseAll();
     }
 
     private String readOutboundEventually(EmbeddedChannel channel) {
