@@ -53,7 +53,8 @@ public class ChatClient {
             BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
             String line;
             while ((line = reader.readLine()) != null) {
-                channel.writeAndFlush(line);
+                // 与服务端 LineBasedFrameDecoder 配套：一行输入必须带换行符才能形成完整消息。
+                channel.writeAndFlush(line + System.lineSeparator());
                 if ("quit".equalsIgnoreCase(line.trim())) {
                     break;
                 }

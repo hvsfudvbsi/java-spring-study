@@ -8,6 +8,7 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.handler.codec.LineBasedFrameDecoder;
 import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
 import io.netty.util.CharsetUtil;
@@ -55,7 +56,9 @@ public class ChatServer {
                         @Override
                         protected void initChannel(SocketChannel ch) {
                             ch.pipeline().addLast(
-                                    new StringDecoder(CharsetUtil.UTF_8), // 入站：字节 -> 字符串
+                                    // TCP 是字节流，必须先按客户端发送的换行符恢复消息边界。
+                                    new LineBasedFrameDecoder(64 * 1024),
+                                    new StringDecoder(CharsetUtil.UTF_8), // 入站：按行字节 -> 字符串
                                     new StringEncoder(CharsetUtil.UTF_8), // 出站：字符串 -> 字节
                                     new ChatServerHandler());              // 业务处理
                         }

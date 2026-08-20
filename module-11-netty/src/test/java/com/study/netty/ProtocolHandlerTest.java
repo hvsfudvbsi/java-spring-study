@@ -12,6 +12,8 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import io.netty.channel.socket.DatagramPacket;
 import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.util.concurrent.ImmediateEventExecutor;
+import io.netty.handler.codec.LineBasedFrameDecoder;
+import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpHeaderNames;
@@ -277,6 +279,36 @@ class ProtocolHandlerTest {
 
         assertTrue(channel.isOpen(), "写空闲不代表客户端假死，不应关闭连接");
         channel.finishAndReleaseAll();
+    }
+
+    @Test
+    @DisplayName("群聊 Pipeline：连续两条带换行消息都能按帧交给业务处理器")
+    void chatPipelineShouldSplitConsecutiveMessages() {
+        DefaultChannelGroup channels = new DefaultChannelGroup(ImmediateEventExecutor.INSTANCE);
+        EmbeddedChannel sender = new EmbeddedChannel(
+                DefaultChannelId.newInstance(),
+                new LineBasedFrameDecoder(1024),
+                new StringDecoder(CharsetUtil.UTF_8),
+                new ChatServerHandler(channels));
+        drainOutbound(sender);
+        EmbeddedChannel receiver = new EmbeddedChannel(
+                DefaultChannelId.newInstance(),
+                new LineBasedFrameDecoder(1024),
+                new StringDecoder(CharsetUtil.UTF_8),
+                new ChatServerHandler(channels));
+        runPendingTasks(sender, receiver);
+        drainOutbound(sender);
+        drainOutbound(receiver);
+
+        // 两条消息一次到达，模拟客户端连续快速输入造成的 TCP 粘包。
+        sender.writeInbound(Unpooled.copiedBuffer("NICK:Alice\nhello\n", CharsetUtil.UTF_8));
+
+        assertEquals("[系统] 昵称已改为: Alice", sender.<String>readOutbound());
+        assertEquals("[系统] 用户-未知 改名为 Alice", readOutboundEventually(receiver));
+        assertEquals("Alice: hello", readOutboundEventually(receiver));
+
+        sender.finishAndReleaseAll();
+        receiver.finishAndReleaseAll();
     }
 
     @Test
