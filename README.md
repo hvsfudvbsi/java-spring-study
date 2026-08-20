@@ -33,6 +33,7 @@ Java 21 + Spring Boot 3.5 多模块学习仓库：**从 Java 基础到 Spring Cl
 | [module-12-multithreading](module-12-multithreading) | 多线程与并发 | Thread/线程池/锁/原子类/并发集合/CompletableFuture/虚拟线程 方法用例（常用+不常用）、生产者消费者、抢票、银行转账、高并发请求实操 |
 | [module-13-design-patterns](module-13-design-patterns) | 设计模式 | GoF 23 种模式用例（常用+不常用写法）、在线商城/审批流/文档导出实操 |
 | [module-14-spring-transaction](module-14-spring-transaction) | Spring 事务 | 声明式事务、提交/回滚、七种传播行为、隔离级别、只读事务、超时、编程式事务、多线程事务、代理调用陷阱 |
+| [module-15-network](module-15-network) | 计算机网络 | 分层模型、TCP/UDP/IP/以太网报文首部逐位解析、TCP vs UDP 对比、JDK 原生 Socket 编程、粘包演示 |
 
 ## 🚀 快速开始
 

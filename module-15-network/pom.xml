@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.study</groupId>
+        <artifactId>java-spring-study</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <!--
+      纯 Java 模块：不依赖 Spring，专注计算机网络基础知识与 JDK 原生网络编程。
+      本模块不打可执行 jar，运行方式见 README。
+    -->
+    <artifactId>module-15-network</artifactId>
+    <name>module-15-network</name>
+    <description>计算机网络：分层模型、TCP/UDP 报文格式与首部位字段解析、原生 Socket 编程</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
