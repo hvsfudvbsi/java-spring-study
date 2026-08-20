@@ -1,5 +1,6 @@
 package com.study.advanced.cache;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -19,6 +20,7 @@ class CacheServiceTest {
     private CacheService cacheService;
 
     @Test
+    @DisplayName("集成测试：二次 getUser 命中缓存返回相同对象")
     void cacheHit_shouldReturnSameInstance() {
         String first = cacheService.getUser(1L);
         String second = cacheService.getUser(1L);
@@ -29,6 +31,7 @@ class CacheServiceTest {
     }
 
     @Test
+    @DisplayName("集成测试：@CachePut 更新后读取到新值（缓存被刷新）")
     void cachePut_shouldUpdateCache() {
         cacheService.getUser(2L);          // 缓存 用户2
         cacheService.updateUser(2L, "新用户2"); // @CachePut 更新缓存
@@ -38,6 +41,7 @@ class CacheServiceTest {
     }
 
     @Test
+    @DisplayName("集成测试：@CacheEvict 清除后重新执行方法生成新值")
     void cacheEvict_shouldRemoveEntry() {
         cacheService.getUser(3L);          // 缓存 用户3
         cacheService.deleteUser(3L);       // @CacheEvict 清除缓存

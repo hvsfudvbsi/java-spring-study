@@ -2,6 +2,7 @@ package com.study.bootbasics.component;
 
 import com.study.bootbasics.config.AppProperties;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -31,12 +32,14 @@ class GreetingServiceUnitTest {
     }
 
     @Test
+    @DisplayName("greet 拼接用户名、应用名与作者信息")
     void greetShouldCombineNameApplicationAndAuthor() {
         assertThat(greetingService.greet("李四"))
                 .isEqualTo("Hello, 李四! 欢迎学习 java-spring-study (作者: 张三)");
     }
 
     @Test
+    @DisplayName("showConfig 输出结构化配置（tags 列表与自定义属性）")
     void showConfigShouldRenderStructuredProperties() {
         assertThat(greetingService.showConfig())
                 .contains("[spring, java]")

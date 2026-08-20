@@ -68,6 +68,24 @@ curl http://localhost:8080/api/order/orders/1
 # => 返回订单 + 关联用户信息，证明整条链路打通
 ```
 
+## 🧪 测试
+
+```bash
+# 进入本模块目录运行全部测试（4 个子服务一起构建）
+cd module-10-spring-cloud-microservices && mvn test
+```
+
+| 测试类 | 验证内容 | 不验证的内容 |
+|--------|----------|--------------|
+| `user-service` `UserControllerTest`（@WebMvcTest） | `/api/users/{id}` 路由、@PathVariable 参数绑定、响应 JSON 结构 | Eureka 注册、真实 HTTP 服务器 |
+| `order-service` `OrderControllerTest`（@WebMvcTest + @MockitoBean UserClient） | 订单接口组装 "订单 + 用户" 响应、Feign 调用确实按 id 发生 | 真实 Feign 网络调用、负载均衡、服务发现 |
+| `eureka-server` `EurekaServerApplicationTests`（@SpringBootTest） | @EnableEurekaServer 及自动配置能装配成功 | 真实的注册/发现行为（需启动全部服务后用 8761 界面验证） |
+| `api-gateway` `GatewayApplicationTests`（@SpringBootTest） | 网关应用上下文与 lb:// 路由配置能装配 | 真实路由转发（需启动全部服务后用 8080 验证） |
+
+**为什么这样测**：
+- 业务接口（user/order）用 `@WebMvcTest` 切片测试，只加载 Web 层，不启动 Eureka、不连数据库、不发起真实网络请求，速度快且稳定；Feign 客户端用 `@MockitoBean` 替换，单测专注于 Controller 自己的逻辑。
+- 注册中心和网关是纯配置型组件，用 `@SpringBootTest` 的 contextLoads 验证"配置能装配"；真实链路行为（注册、发现、路由转发、负载均衡）依赖多服务协作，通过上方"✅ 验证"章节手工验证。
+
 ## 🔍 核心概念讲解
 
 ### 1. 服务注册与发现（Eureka）

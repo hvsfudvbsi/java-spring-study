@@ -1,6 +1,7 @@
 package com.study.advanced.service;
 
 import com.study.advanced.event.OrderPlacedEvent;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 
@@ -14,6 +15,7 @@ import static org.mockito.Mockito.verify;
 class OrderServiceUnitTest {
 
     @Test
+    @DisplayName("创建订单发布 OrderPlacedEvent，事件内容与订单一致")
     void createOrderShouldPublishOrderPlacedEvent() {
         ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
         OrderService orderService = new OrderService(publisher);

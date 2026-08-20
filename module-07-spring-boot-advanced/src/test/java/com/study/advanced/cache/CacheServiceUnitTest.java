@@ -1,6 +1,7 @@
 package com.study.advanced.cache;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,11 +19,13 @@ class CacheServiceUnitTest {
     }
 
     @Test
+    @DisplayName("getUser 未命中时创建并返回默认值（用户+id）")
     void getUserShouldCreateDefaultValue() {
         assertThat(cacheService.getUser(1L)).isEqualTo("用户1");
     }
 
     @Test
+    @DisplayName("updateUser 替换缓存中的值并返回新值")
     void updateUserShouldReplaceValue() {
         cacheService.getUser(2L);
 
@@ -31,6 +34,7 @@ class CacheServiceUnitTest {
     }
 
     @Test
+    @DisplayName("deleteUser 删除后再次 getUser 重新生成默认值")
     void deleteUserShouldAllowFreshValueToBeCreated() {
         cacheService.updateUser(3L, "旧用户3");
 
@@ -40,6 +44,7 @@ class CacheServiceUnitTest {
     }
 
     @Test
+    @DisplayName("clearCache 清空后服务仍可正常生成新值")
     void clearCacheShouldKeepServiceUsable() {
         cacheService.updateUser(4L, "用户4");
 

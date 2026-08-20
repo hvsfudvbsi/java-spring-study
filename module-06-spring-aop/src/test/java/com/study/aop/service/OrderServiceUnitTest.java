@@ -1,6 +1,7 @@
 package com.study.aop.service;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,6 +20,7 @@ class OrderServiceUnitTest {
     }
 
     @Test
+    @DisplayName("创建订单返回正数 id 且列表包含格式化后的订单")
     void createOrderShouldStoreFormattedOrder() {
         Long id = orderService.createOrder("手机", 2);
 
@@ -27,6 +29,7 @@ class OrderServiceUnitTest {
     }
 
     @Test
+    @DisplayName("按 id 查询已存在订单返回格式化内容")
     void findOrderShouldReturnExistingOrder() {
         Long id = orderService.createOrder("电脑", 1);
 
@@ -34,6 +37,7 @@ class OrderServiceUnitTest {
     }
 
     @Test
+    @DisplayName("查询不存在的订单抛出 IllegalArgumentException 并带订单号")
     void findMissingOrderShouldThrow() {
         assertThatThrownBy(() -> orderService.findOrder(999L))
                 .isInstanceOf(IllegalArgumentException.class)

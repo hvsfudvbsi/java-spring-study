@@ -1,5 +1,6 @@
 package com.study.mvc.controller;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -28,6 +29,7 @@ class UserControllerTest {
     private MockMvc mockMvc;
 
     @Test
+    @DisplayName("POST /api/users 合法请求返回 201 与自增 id")
     void createUser_shouldReturn201() throws Exception {
         String body = """
                 {"name":"张三","email":"zhangsan@example.com","age":25,"phone":"13800138000"}
@@ -42,6 +44,7 @@ class UserControllerTest {
     }
 
     @Test
+    @DisplayName("POST /api/users 空名称/错误邮箱/错误手机号返回 400 与校验错误码")
     void createUser_withInvalidBody_shouldReturn400() throws Exception {
         // name 为空 + email 格式错误 + 手机号格式错误
         String body = """
@@ -57,6 +60,7 @@ class UserControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/users/99999 不存在的用户返回 404 与 USER_NOT_FOUND")
     void getUser_notFound_shouldReturn404() throws Exception {
         mockMvc.perform(get("/api/users/99999"))
                 .andExpect(status().isNotFound())
@@ -64,6 +68,7 @@ class UserControllerTest {
     }
 
     @Test
+    @DisplayName("GET /api/users 分页参数生效：返回总数与列表")
     void listUsers_shouldReturnPagedResult() throws Exception {
         // 先造 2 条数据
         for (int i = 0; i < 2; i++) {
@@ -83,6 +88,7 @@ class UserControllerTest {
     }
 
     @Test
+    @DisplayName("DELETE /api/users/{id} 删除已存在用户返回 204")
     void deleteUser_shouldReturn204() throws Exception {
         // 先创建一个用户
         String body = """

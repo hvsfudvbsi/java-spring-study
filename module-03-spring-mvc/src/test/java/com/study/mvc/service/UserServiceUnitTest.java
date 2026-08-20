@@ -3,6 +3,7 @@ package com.study.mvc.service;
 import com.study.mvc.exception.UserNotFoundException;
 import com.study.mvc.model.User;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -23,6 +24,7 @@ class UserServiceUnitTest {
     }
 
     @Test
+    @DisplayName("创建用户后可查询且计数正确（id 从 1 开始自增）")
     void createGetAndCountShouldWork() {
         User saved = userService.create(user("张三", "zhangsan@example.com"));
 
@@ -32,6 +34,7 @@ class UserServiceUnitTest {
     }
 
     @Test
+    @DisplayName("分页查询按页码返回对应切片（第 2 页每页 2 条返回第 3 条）")
     void listShouldReturnRequestedPage() {
         userService.create(user("张三", "zhangsan@example.com"));
         userService.create(user("李四", "lisi@example.com"));
@@ -43,6 +46,7 @@ class UserServiceUnitTest {
     }
 
     @Test
+    @DisplayName("更新用户保留原 id 并替换其余字段")
     void updateShouldReplaceDataAndKeepId() {
         userService.create(user("张三", "old@example.com"));
 
@@ -53,6 +57,7 @@ class UserServiceUnitTest {
     }
 
     @Test
+    @DisplayName("删除用户后数量归零且再查询抛领域异常")
     void deleteShouldRemoveExistingUser() {
         userService.create(user("张三", "zhangsan@example.com"));
 
@@ -64,6 +69,7 @@ class UserServiceUnitTest {
     }
 
     @Test
+    @DisplayName("对不存在的用户执行查询/更新/删除均抛 UserNotFoundException")
     void missingUserOperationsShouldThrowDomainException() {
         assertThatThrownBy(() -> userService.getById(99L))
                 .isInstanceOf(UserNotFoundException.class);

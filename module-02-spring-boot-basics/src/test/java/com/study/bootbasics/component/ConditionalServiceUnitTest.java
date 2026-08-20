@@ -1,5 +1,6 @@
 package com.study.bootbasics.component;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -8,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ConditionalServiceUnitTest {
 
     @Test
+    @DisplayName("条件化功能开启时 featureInfo 返回启用说明")
     void featureInfoShouldDescribeEnabledFeature() {
         assertThat(new ConditionalService().featureInfo())
                 .isEqualTo("条件化功能已开启");

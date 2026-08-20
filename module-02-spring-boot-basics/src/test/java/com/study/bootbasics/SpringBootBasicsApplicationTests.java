@@ -1,5 +1,6 @@
 package com.study.bootbasics;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 
@@ -13,6 +14,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 class SpringBootBasicsApplicationTests {
 
     @Test
+    @DisplayName("应用上下文能正常加载：配置和 Bean 定义正确时容器启动成功")
     void contextLoads() {
         // 上下文能加载出来就说明配置正确
     }
