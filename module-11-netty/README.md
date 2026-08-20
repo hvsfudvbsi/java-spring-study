@@ -311,6 +311,9 @@ JSSE 握手跟踪（`javax.net.debug=ssl:handshake`），把 TLS 1.3 握手的�
   `ssl:handshake:verbose`。
 - `SslServer`/`SslClient` 单独运行时，也会在控制台打印 `TLS 握手成功: 协议=...，密码套件=...，
   对端证书=...`，便于直接确认握手结果。
+- 不依赖 Netty 的纯 JDK 版握手演示（`SSLSocket`）见
+  [module-15-network](../module-15-network) 的 `tls/TlsHandshakeDemo`，两者对照可同时理解
+  Netty 封装与 JDK 原生 API。
 
 ### 10. IM 群聊：ChannelGroup 与连接状态
 

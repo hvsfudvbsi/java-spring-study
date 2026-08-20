@@ -19,6 +19,18 @@
     <description>计算机网络：分层模型、TCP/UDP 报文格式与首部位字段解析、原生 Socket 编程</description>
 
     <dependencies>
+        <!-- Java 21 下生成临时自签名证书（与 module-11 一致，仅学习用途） -->
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <version>1.80</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+            <version>1.80</version>
+        </dependency>
+
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

@@ -40,6 +40,7 @@
 | `socket/TcpStickyPacketDemo` | **粘包演示**：连续发 3 条消息，接收方 read 次数 < 3（无边界）vs UDP 正好 3 次（有边界） |
 | `socket/framed/FrameCodec` | **长度头帧协议**：`[4 字节长度][UTF-8 内容]`，编码 + 累积解码（粘包/拆包/半帧） |
 | `socket/framed/FramedTcpServer` + `FramedTcpClient` | **多线程帧协议服务器**：每连接一线程，按长度头拆帧回声 |
+| `tls/TlsHandshakeDemo` | **纯 JDK TLS 握手详解**：SSLSocket 真实握手，打印 ClientHello→Finished 报文与协商结果 | javax.net.debug 跟踪、SSLContext/KeyStore/自签名证书、SSLSession |
 
 ## 🚀 运行方式
 
@@ -57,6 +58,9 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.s
 # 单独运行 UDP 回显（两个终端）
 mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.socket.UdpEchoServer
 mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.socket.UdpEchoClient
+
+# 亲眼观察 TLS 握手（单进程内自动启动 SSLSocket 服务端+客户端）
+mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.tls.TlsHandshakeDemo
 ```
 
 ## 🔍 核心概念讲解
@@ -160,6 +164,27 @@ ICMP 首部 8 字节：`[类型(8)][代码(8)][校验和(16)][标识(16)][序号
 
 本模块的 `TcpHeader` 可构造 SYN/FIN/ACK 报文观察标志位，`TcpStateMachine` 可模拟完整状态流转；真实抓包用 `tcpdump`/Wireshark（或 `curl -v`）。
 
+### 6. TLS 握手：应用层加密通道的建立（对应 `tls/TlsHandshakeDemo`）
+
+HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是客户端与服务端**协商参数 + 互相证明身份**的过程，运行 `TlsHandshakeDemo`（纯 JDK `SSLSocket`）会开启 JSSE 握手跟踪（`javax.net.debug=ssl:handshake`），打印 TLS 1.3 每一步的真实报文：
+
+| 步骤 | 方向 | 作用 |
+|------|------|------|
+| ClientHello | 客户端→服务器 | 客户端随机数、支持的 TLS 版本与密码套件、SNI（服务器名） |
+| ServerHello | 服务器→客户端 | 选定 TLS 版本与密码套件，返回服务器随机数 |
+| EncryptedExtensions | 服务器→客户端 | 此后传输加密；传递扩展参数 |
+| Certificate | 服务器→客户端 | 服务器证书链，客户端验证身份（本示例信任所有证书） |
+| CertificateVerify | 服务器→客户端 | 私钥签名，证明证书与私钥匹配、握手中途未被篡改 |
+| Finished | 服务器→客户端 | 对全部握手消息的完整性校验值 |
+| Finished | 客户端→服务器 | 客户端同样发送校验值，双向确认 |
+| Application Data | 双向 | 业务数据用协商出的密钥加密传输 |
+
+关键理解：
+- **协商**：版本、密码套件、随机数、密钥参数在 ClientHello/ServerHello 中定下来，之后的密钥交换在加密扩展里完成；
+- **身份认证**：Certificate 携带证书链，CertificateVerify 用私钥签名证明持证，防止中间人；
+- **双向确认**：双方各发一次 Finished 校验全部握手消息，任何一方中途被篡改都会失败。
+- 想看密钥细节，把调试级别改成 `ssl:handshake:verbose`。Netty 版演示见 [module-11-netty](../module-11-netty) 的 `ssl/SslHandshakeDemo`。
+
 ## 🧪 测试
 
 | 测试类 | 验证内容 | 不验证的内容 |
@@ -175,6 +200,7 @@ ICMP 首部 8 字节：`[类型(8)][代码(8)][校验和(16)][标识(16)][序号
 | `SocketIntegrationTest`（4） | **真实回环** TCP/UDP 回显、粘包 vs 有边界 | 跨主机网络 |
 | `FrameCodecTest`（9） | 长度头编码、粘包多帧、拆包等待、长度头分批、非法超长拒绝 | 真实网络 |
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
+| `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
 > 共 61 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
@@ -197,5 +223,5 @@ ICMP 首部 8 字节：`[类型(8)][代码(8)][校验和(16)][标识(16)][序号
 
 ## 📄 关联模块
 
-- [module-11-netty](../module-11-netty)：Netty 对 TCP 粘包/拆包的工业级解决（解码器、心跳、群聊）。
+- [module-11-netty](../module-11-netty)：Netty 对 TCP 粘包/拆包的工业级解决（解码器、心跳、群聊）；TLS 部分有 Netty 版握手演示 `ssl/SslHandshakeDemo`，与本模块的纯 JDK 版 `tls/TlsHandshakeDemo` 相互对照。
 - [module-12-multithreading](../module-12-multithreading)：Socket 服务器多线程处理的并发基础。
