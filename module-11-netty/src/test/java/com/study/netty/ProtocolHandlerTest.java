@@ -205,8 +205,8 @@ class ProtocolHandlerTest {
     }
 
     @Test
-    @DisplayName("心跳服务端：收到 PING 回 PONG，读空闲判定假死并关闭")
-    void heartbeatHandlerShouldRespondToPingAndCloseOnReaderIdle() {
+    @DisplayName("心跳服务端：收到 PING 回 PONG；连续 3 次读空闲才判定假死关闭")
+    void heartbeatHandlerShouldRespondToPingAndCloseAfterMaxMissed() {
         EmbeddedChannel channel = new EmbeddedChannel(new HeartbeatServer.HeartbeatServerHandler());
 
         channel.writeInbound(Unpooled.copiedBuffer("PING", CharsetUtil.UTF_8));
@@ -214,10 +214,48 @@ class ProtocolHandlerTest {
         assertEquals("PONG", response.toString(CharsetUtil.UTF_8));
         response.release();
 
-        channel.pipeline().fireUserEventTriggered(IdleStateEvent.FIRST_READER_IDLE_STATE_EVENT);
+        // 第 1、2 次读空闲：只累计漏心跳，不关闭
+        fireReaderIdle(channel);
+        assertTrue(channel.isOpen(), "第 1 次读空闲不应关闭");
+        fireReaderIdle(channel);
+        assertTrue(channel.isOpen(), "第 2 次读空闲不应关闭");
 
-        assertFalse(channel.isOpen());
+        // 第 3 次读空闲：达到阈值，判定假死并关闭
+        fireReaderIdle(channel);
+        assertFalse(channel.isOpen(), "连续 3 次读空闲应关闭连接");
         channel.finishAndReleaseAll();
+    }
+
+    @Test
+    @DisplayName("心跳服务端：读空闲期间收到心跳会重置计数，不会误杀正常连接")
+    void heartbeatHandlerShouldResetMissedCountOnPing() {
+        EmbeddedChannel channel = new EmbeddedChannel(new HeartbeatServer.HeartbeatServerHandler());
+
+        // 先漏 2 次心跳（还差 1 次就到阈值）
+        fireReaderIdle(channel);
+        fireReaderIdle(channel);
+        assertTrue(channel.isOpen());
+
+        // 收到心跳：计数重置为 0
+        channel.writeInbound(Unpooled.copiedBuffer("PING", CharsetUtil.UTF_8));
+        ByteBuf pong = channel.readOutbound();
+        assertEquals("PONG", pong.toString(CharsetUtil.UTF_8));
+        pong.release();
+
+        // 重置后再漏 2 次仍不应关闭（计数从 0 重新累计）
+        fireReaderIdle(channel);
+        assertTrue(channel.isOpen(), "重置后第 1 次读空闲不应关闭");
+        fireReaderIdle(channel);
+        assertTrue(channel.isOpen(), "重置后第 2 次读空闲不应关闭");
+
+        // 重置后连续第 3 次读空闲才关闭
+        fireReaderIdle(channel);
+        assertFalse(channel.isOpen(), "重置后连续 3 次读空闲才应关闭");
+        channel.finishAndReleaseAll();
+    }
+
+    private void fireReaderIdle(EmbeddedChannel channel) {
+        channel.pipeline().fireUserEventTriggered(IdleStateEvent.READER_IDLE_STATE_EVENT);
     }
 
     @Test

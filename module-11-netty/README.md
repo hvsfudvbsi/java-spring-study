@@ -222,9 +222,9 @@ TCP 连接处于 `ESTABLISHED` 不代表对端应用仍然可用。心跳示例�
 1. 客户端用 `IdleStateHandler(0, 3, 0, TimeUnit.SECONDS)` 检测写空闲。
 2. 写空闲时发送应用层 `PING`；服务端收到后回复 `PONG`。
 3. 服务端用读空闲检测器观察是否长期没有任何客户端数据。
-4. 触发 `IdleStateEvent` 后关闭假死连接并释放资源。
+4. **连续 N 次读空闲都没收到心跳才判定假死**：每次收到数据重置计数，读空闲时 +1，达到阈值（本示例 3 次 ≈ 15 秒）才关闭连接并释放资源。这样单次丢包/网络抖动不会误杀正常连接。
 
-`IdleStateHandler` 只负责产生事件，不会自动发送 PING；真正的心跳协议、重试次数、超时策略必须由业务 Handler 定义。源码：`heartbeat/HeartbeatServer`、`heartbeat/HeartbeatClient`；测试：`ProtocolHandlerTest`。
+`IdleStateHandler` 只负责产生事件，不会自动发送 PING；真正的心跳协议、重试次数、超时策略必须由业务 Handler 定义（本示例的"连续 N 次漏心跳"计数就在 `HeartbeatServerHandler` 里）。源码：`heartbeat/HeartbeatServer`、`heartbeat/HeartbeatClient`；测试：`ProtocolHandlerTest`。
 
 ### 6. HTTP：先解码协议，再聚合请求
 
@@ -318,4 +318,4 @@ TLS Handler 必须放在业务协议 Handler 前面：
 2. 心跳客户端把 `WRITER_IDLE_SECONDS` 改成 1 秒，观察服务端是否还断开（理解读/写空闲的区别）。
 3. 给群聊增加"群文件/图片"消息类型（提示：定义 `FILE:昵称:文件名:内容` 协议，按类型分发）。
 4. 用 `LengthFieldBasedFrameDecoder` 设计一个带消息类型的协议（1 字节类型 + 4 字节长度 + 内容）。
-5. 给心跳服务器加"连续 N 次没收到心跳才断开"的逻辑（用计数 + 定时重置）。
+5. 让心跳服务器区分"普通数据"和"心跳"：只有收到 `PING` 才重置计数，普通消息不重置（当前实现是收到任何数据都重置）。
