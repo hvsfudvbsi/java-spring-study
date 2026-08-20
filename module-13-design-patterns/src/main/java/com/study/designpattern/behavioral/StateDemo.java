@@ -30,18 +30,22 @@ public class StateDemo {
 
     /** 状态：待支付 */
     public static final class PendingPaymentState implements OrderState {
+        @Override
         public String name() {
             return "待支付";
         }
 
+        @Override
         public OrderState pay() {
             return new PaidState();
         }
 
+        @Override
         public OrderState ship() {
             throw new IllegalStateException("待支付状态不能发货");
         }
 
+        @Override
         public OrderState complete() {
             throw new IllegalStateException("待支付状态不能完成");
         }
@@ -49,18 +53,22 @@ public class StateDemo {
 
     /** 状态：已支付 */
     public static final class PaidState implements OrderState {
+        @Override
         public String name() {
             return "已支付";
         }
 
+        @Override
         public OrderState pay() {
             throw new IllegalStateException("不能重复支付");
         }
 
+        @Override
         public OrderState ship() {
             return new ShippedState();
         }
 
+        @Override
         public OrderState complete() {
             throw new IllegalStateException("未发货不能完成");
         }
@@ -68,18 +76,22 @@ public class StateDemo {
 
     /** 状态：已发货 */
     public static final class ShippedState implements OrderState {
+        @Override
         public String name() {
             return "已发货";
         }
 
+        @Override
         public OrderState pay() {
             throw new IllegalStateException("已支付状态不能再次支付");
         }
 
+        @Override
         public OrderState ship() {
             throw new IllegalStateException("不能重复发货");
         }
 
+        @Override
         public OrderState complete() {
             return new CompletedState();
         }
@@ -87,18 +99,22 @@ public class StateDemo {
 
     /** 状态：已完成（终态） */
     public static final class CompletedState implements OrderState {
+        @Override
         public String name() {
             return "已完成";
         }
 
+        @Override
         public OrderState pay() {
             throw new IllegalStateException("已完成订单不能操作");
         }
 
+        @Override
         public OrderState ship() {
             throw new IllegalStateException("已完成订单不能操作");
         }
 
+        @Override
         public OrderState complete() {
             throw new IllegalStateException("已完成订单不能操作");
         }

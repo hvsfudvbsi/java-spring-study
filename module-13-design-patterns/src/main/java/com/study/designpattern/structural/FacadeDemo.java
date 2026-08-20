@@ -69,6 +69,7 @@ public class FacadeDemo {
     public static final class OrderFacadeImpl implements OrderService {
         private final OrderFacade facade = new OrderFacade();
 
+        @Override
         public String placeOrder(String sku, int count, double price, String address) {
             return facade.placeOrder(sku, count, price, address);
         }

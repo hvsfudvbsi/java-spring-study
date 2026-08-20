@@ -27,10 +27,12 @@ public class ProxyDemo {
     }
 
     public static final class UserServiceImpl implements UserService {
+        @Override
         public String findUser(String id) {
             return "用户{id=" + id + ", name=张三}";
         }
 
+        @Override
         public void updateUser(String id, String name) {
             System.out.println("    更新用户 " + id + " 为 " + name);
         }
@@ -44,6 +46,7 @@ public class ProxyDemo {
             this.target = target;
         }
 
+        @Override
         public String findUser(String id) {
             System.out.println("    [日志] 调用 findUser(" + id + ")");
             String result = target.findUser(id);
@@ -51,6 +54,7 @@ public class ProxyDemo {
             return result;
         }
 
+        @Override
         public void updateUser(String id, String name) {
             System.out.println("    [日志] 调用 updateUser(" + id + ", " + name + ")");
             target.updateUser(id, name);
@@ -103,10 +107,12 @@ public class ProxyDemo {
             this.isAdmin = isAdmin;
         }
 
+        @Override
         public String findUser(String id) {
             return target.findUser(id);
         }
 
+        @Override
         public void updateUser(String id, String name) {
             if (!isAdmin) {
                 throw new SecurityException("无权限修改用户（保护代理拦截）");

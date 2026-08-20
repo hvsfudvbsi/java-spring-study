@@ -129,40 +129,48 @@ public class ApprovalWorkflowDemo {
     }
 
     public static final class TeamLeader extends Approver {
+        @Override
         protected boolean canApprove(double amount) {
             return amount <= 1000;
         }
 
+        @Override
         protected String name() {
             return "组长";
         }
     }
 
     public static final class Manager extends Approver {
+        @Override
         protected boolean canApprove(double amount) {
             return amount <= 10000;
         }
 
+        @Override
         protected String name() {
             return "经理";
         }
     }
 
     public static final class Director extends Approver {
+        @Override
         protected boolean canApprove(double amount) {
             return amount <= 100000;
         }
 
+        @Override
         protected String name() {
             return "总监";
         }
     }
 
     public static final class Ceo extends Approver {
+        @Override
         protected boolean canApprove(double amount) {
             return true;   // 兜底：都能批
         }
 
+        @Override
         protected String name() {
             return "CEO";
         }

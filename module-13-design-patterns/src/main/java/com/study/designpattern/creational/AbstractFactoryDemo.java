@@ -21,12 +21,14 @@ public class AbstractFactoryDemo {
     }
 
     public static final class LightButton implements Button {
+        @Override
         public String render() {
             return "[浅色按钮 ☀]";
         }
     }
 
     public static final class DarkButton implements Button {
+        @Override
         public String render() {
             return "[深色按钮 🌙]";
         }
@@ -38,12 +40,14 @@ public class AbstractFactoryDemo {
     }
 
     public static final class LightTextField implements TextField {
+        @Override
         public String render() {
             return "[浅色输入框 ☀]";
         }
     }
 
     public static final class DarkTextField implements TextField {
+        @Override
         public String render() {
             return "[深色输入框 🌙]";
         }
@@ -59,28 +63,34 @@ public class AbstractFactoryDemo {
     }
 
     public static final class LightThemeFactory implements UiFactory {
+        @Override
         public Button createButton() {
             return new LightButton();
         }
 
+        @Override
         public TextField createTextField() {
             return new LightTextField();
         }
 
+        @Override
         public String theme() {
             return "浅色主题";
         }
     }
 
     public static final class DarkThemeFactory implements UiFactory {
+        @Override
         public Button createButton() {
             return new DarkButton();
         }
 
+        @Override
         public TextField createTextField() {
             return new DarkTextField();
         }
 
+        @Override
         public String theme() {
             return "深色主题";
         }

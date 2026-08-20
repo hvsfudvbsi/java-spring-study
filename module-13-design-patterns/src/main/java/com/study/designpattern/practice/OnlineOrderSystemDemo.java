@@ -52,12 +52,14 @@ public class OnlineOrderSystemDemo {
     }
 
     public static final class SmsNotifier implements OrderListener {
+        @Override
         public void onOrderEvent(Order order, OrderEvent event) {
             System.out.println("    [短信] 订单 " + order.id() + " -> " + event);
         }
     }
 
     public static final class EmailNotifier implements OrderListener {
+        @Override
         public void onOrderEvent(Order order, OrderEvent event) {
             System.out.println("    [邮件] 订单 " + order.id() + " -> " + event);
         }
@@ -129,30 +131,36 @@ public class OnlineOrderSystemDemo {
     private static final AtomicInteger SEQ = new AtomicInteger(1);
 
     public static final class NormalOrderFactory implements OrderFactory {
+        @Override
         public Order create(double amount) {
             return new Order("N-" + SEQ.getAndIncrement(), "普通订单", amount, 1.0);
         }
 
+        @Override
         public String type() {
             return "普通";
         }
     }
 
     public static final class FlashOrderFactory implements OrderFactory {
+        @Override
         public Order create(double amount) {
             return new Order("F-" + SEQ.getAndIncrement(), "秒杀订单", amount, 0.5);
         }
 
+        @Override
         public String type() {
             return "秒杀";
         }
     }
 
     public static final class GroupOrderFactory implements OrderFactory {
+        @Override
         public Order create(double amount) {
             return new Order("G-" + SEQ.getAndIncrement(), "团购订单", amount, 0.8);
         }
 
+        @Override
         public String type() {
             return "团购";
         }
@@ -165,12 +173,14 @@ public class OnlineOrderSystemDemo {
     }
 
     public static final class WeChatStrategy implements PaymentStrategy {
+        @Override
         public String pay(Order order) {
             return "微信支付 ¥" + order.amount();
         }
     }
 
     public static final class AlipayStrategy implements PaymentStrategy {
+        @Override
         public String pay(Order order) {
             return "支付宝支付 ¥" + order.amount();
         }
@@ -214,10 +224,12 @@ public class OnlineOrderSystemDemo {
             super(listeners, payment);
         }
 
+        @Override
         protected Order createOrder(double amount) {
             return new NormalOrderFactory().create(amount);
         }
 
+        @Override
         public String name() {
             return "普通下单流程";
         }
@@ -229,6 +241,7 @@ public class OnlineOrderSystemDemo {
             super(listeners, payment);
         }
 
+        @Override
         protected Order createOrder(double amount) {
             return new FlashOrderFactory().create(amount);
         }
@@ -240,6 +253,7 @@ public class OnlineOrderSystemDemo {
             }
         }
 
+        @Override
         public String name() {
             return "秒杀下单流程";
         }

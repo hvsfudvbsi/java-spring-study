@@ -44,9 +44,11 @@ class CreationalPatternsTest {
     @DisplayName("工厂方法：注册表工厂按类型产出正确产品，支持动态注册")
     void factoryMethodRegistry() {
         FactoryMethodDemo.RegistryFactory.register("excel", () -> new FactoryMethodDemo.Document() {
+            @Override
             public void open() {
             }
 
+            @Override
             public String type() {
                 return "excel";
             }

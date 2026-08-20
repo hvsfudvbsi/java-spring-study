@@ -24,6 +24,7 @@ public class InterpreterDemo {
             this.value = value;
         }
 
+        @Override
         public int interpret() {
             return value;
         }
@@ -39,6 +40,7 @@ public class InterpreterDemo {
             this.right = right;
         }
 
+        @Override
         public int interpret() {
             return left.interpret() + right.interpret();
         }
@@ -54,6 +56,7 @@ public class InterpreterDemo {
             this.right = right;
         }
 
+        @Override
         public int interpret() {
             return left.interpret() - right.interpret();
         }
@@ -69,6 +72,7 @@ public class InterpreterDemo {
             this.right = right;
         }
 
+        @Override
         public int interpret() {
             return left.interpret() * right.interpret();
         }

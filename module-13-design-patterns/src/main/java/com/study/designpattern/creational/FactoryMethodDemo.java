@@ -25,20 +25,24 @@ public class FactoryMethodDemo {
     }
 
     public static final class WordDocument implements Document {
+        @Override
         public void open() {
             System.out.println("    Word 文档打开，支持修订/批注");
         }
 
+        @Override
         public String type() {
             return "word";
         }
     }
 
     public static final class PdfDocument implements Document {
+        @Override
         public void open() {
             System.out.println("    PDF 文档打开，只读模式");
         }
 
+        @Override
         public String type() {
             return "pdf";
         }
@@ -50,12 +54,14 @@ public class FactoryMethodDemo {
     }
 
     public static final class WordFactory implements DocumentFactory {
+        @Override
         public Document create() {
             return new WordDocument();
         }
     }
 
     public static final class PdfFactory implements DocumentFactory {
+        @Override
         public Document create() {
             return new PdfDocument();
         }
@@ -105,11 +111,13 @@ public class FactoryMethodDemo {
         System.out.println("    create(\"word\") -> " + RegistryFactory.create("word").type()
                 + "，create(\"pdf\") -> " + RegistryFactory.create("pdf").type());
         RegistryFactory.register("excel", () -> new Document() {
-            public void open() {
+            @Override
+        public void open() {
                 System.out.println("    Excel 文档打开，支持公式");
             }
 
-            public String type() {
+            @Override
+        public String type() {
                 return "excel";
             }
         });

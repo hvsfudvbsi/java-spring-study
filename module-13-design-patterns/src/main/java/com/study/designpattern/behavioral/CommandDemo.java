@@ -47,10 +47,12 @@ public class CommandDemo {
             this.light = light;
         }
 
+        @Override
         public void execute() {
             light.on();
         }
 
+        @Override
         public void undo() {
             light.off();
         }
@@ -63,10 +65,12 @@ public class CommandDemo {
             this.light = light;
         }
 
+        @Override
         public void execute() {
             light.off();
         }
 
+        @Override
         public void undo() {
             light.on();
         }
@@ -82,10 +86,12 @@ public class CommandDemo {
             this.undoAction = undoAction;
         }
 
+        @Override
         public void execute() {
             System.out.println("    " + action);
         }
 
+        @Override
         public void undo() {
             System.out.println("    " + undoAction);
         }
@@ -99,10 +105,12 @@ public class CommandDemo {
             this.commands = commands;
         }
 
+        @Override
         public void execute() {
             commands.forEach(Command::execute);
         }
 
+        @Override
         public void undo() {
             // 逆序撤销
             for (int i = commands.size() - 1; i >= 0; i--) {

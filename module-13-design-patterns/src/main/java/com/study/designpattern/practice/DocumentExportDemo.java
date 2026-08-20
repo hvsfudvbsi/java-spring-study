@@ -32,6 +32,7 @@ public class DocumentExportDemo {
             this.content = content;
         }
 
+        @Override
         public String content() {
             return content;
         }
@@ -52,6 +53,7 @@ public class DocumentExportDemo {
             this.legacy = legacy;
         }
 
+        @Override
         public String content() {
             return legacy.fetchRaw();
         }
@@ -100,6 +102,7 @@ public class DocumentExportDemo {
 
     /** 基础导出：纯文本 */
     public static final class PlainTextExporter implements Exporter {
+        @Override
         public String export(DataSource source, Font font) {
             return "[" + font + "] " + source.content();
         }
@@ -120,6 +123,7 @@ public class DocumentExportDemo {
             super(delegate);
         }
 
+        @Override
         public String export(DataSource source, Font font) {
             return delegate.export(source, font) + "\n[水印: 机密文件]";
         }
@@ -131,6 +135,7 @@ public class DocumentExportDemo {
             super(delegate);
         }
 
+        @Override
         public String export(DataSource source, Font font) {
             String content = delegate.export(source, font);
             return "[已加密] " + java.util.Base64.getEncoder().encodeToString(content.getBytes());
@@ -143,6 +148,7 @@ public class DocumentExportDemo {
             super(delegate);
         }
 
+        @Override
         public String export(DataSource source, Font font) {
             return "[已压缩] " + delegate.export(source, font);
         }

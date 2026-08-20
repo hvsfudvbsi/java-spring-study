@@ -20,12 +20,14 @@ public class BridgeDemo {
     }
 
     public static final class VectorRenderer implements Renderer {
+        @Override
         public String render(String shapeDesc) {
             return "[矢量引擎] 绘制 " + shapeDesc;
         }
     }
 
     public static final class RasterRenderer implements Renderer {
+        @Override
         public String render(String shapeDesc) {
             return "[光栅引擎] 绘制 " + shapeDesc;
         }
@@ -52,10 +54,12 @@ public class BridgeDemo {
             this.radius = radius;
         }
 
+        @Override
         public String draw() {
             return renderer.render("圆形(半径 " + radius + ")");
         }
 
+        @Override
         public double area() {
             return Math.PI * radius * radius;
         }
@@ -71,10 +75,12 @@ public class BridgeDemo {
             this.h = h;
         }
 
+        @Override
         public String draw() {
             return renderer.render("矩形(" + w + "x" + h + ")");
         }
 
+        @Override
         public double area() {
             return w * h;
         }

@@ -28,6 +28,7 @@ public class VisitorDemo {
             this.radius = radius;
         }
 
+        @Override
         public void accept(ShapeVisitor visitor) {
             visitor.visit(this);   // 双分派关键：由元素决定调用哪个重载
         }
@@ -42,6 +43,7 @@ public class VisitorDemo {
             this.h = h;
         }
 
+        @Override
         public void accept(ShapeVisitor visitor) {
             visitor.visit(this);
         }
@@ -56,6 +58,7 @@ public class VisitorDemo {
             this.height = height;
         }
 
+        @Override
         public void accept(ShapeVisitor visitor) {
             visitor.visit(this);
         }
@@ -74,14 +77,17 @@ public class VisitorDemo {
     public static final class AreaVisitor implements ShapeVisitor {
         private double total;
 
+        @Override
         public void visit(Circle c) {
             total += Math.PI * c.radius * c.radius;
         }
 
+        @Override
         public void visit(Rectangle r) {
             total += r.w * r.h;
         }
 
+        @Override
         public void visit(Triangle t) {
             total += t.base * t.height / 2;
         }
@@ -95,14 +101,17 @@ public class VisitorDemo {
     public static final class InfoVisitor implements ShapeVisitor {
         private final StringBuilder sb = new StringBuilder();
 
+        @Override
         public void visit(Circle c) {
             sb.append("圆形(r=").append(c.radius).append(") ");
         }
 
+        @Override
         public void visit(Rectangle r) {
             sb.append("矩形(").append(r.w).append("x").append(r.h).append(") ");
         }
 
+        @Override
         public void visit(Triangle t) {
             sb.append("三角形(底=").append(t.base).append(") ");
         }

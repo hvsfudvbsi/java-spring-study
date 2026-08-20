@@ -33,10 +33,12 @@ public class CompositeDemo {
             this.size = size;
         }
 
+        @Override
         public String getName() {
             return name;
         }
 
+        @Override
         public long size() {
             return size;
         }
@@ -68,11 +70,13 @@ public class CompositeDemo {
             return List.copyOf(children);
         }
 
+        @Override
         public String getName() {
             return name;
         }
 
         /** 递归求和：目录大小 = 所有子节点之和 */
+        @Override
         public long size() {
             return children.stream().mapToLong(FileSystemNode::size).sum();
         }

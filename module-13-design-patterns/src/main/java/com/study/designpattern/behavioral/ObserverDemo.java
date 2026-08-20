@@ -61,6 +61,7 @@ public class ObserverDemo {
             this.name = name;
         }
 
+        @Override
         public void update(float temperature, float humidity) {
             System.out.println("    [App-" + name + "] 收到推送: " + temperature + "°C / " + humidity + "%");
         }
@@ -68,6 +69,7 @@ public class ObserverDemo {
 
     /** 具体观察者：户外大屏 */
     public static final class DisplayScreen implements WeatherObserver {
+        @Override
         public void update(float temperature, float humidity) {
             System.out.println("    [户外大屏] 展示: 当前 " + temperature + "°C");
         }

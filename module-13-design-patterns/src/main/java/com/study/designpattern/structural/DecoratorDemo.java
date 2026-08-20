@@ -30,10 +30,12 @@ public class DecoratorDemo {
 
     /** 基础组件：浓缩咖啡 */
     public static final class Espresso implements Coffee {
+        @Override
         public String description() {
             return "浓缩咖啡";
         }
 
+        @Override
         public double cost() {
             return 15;
         }
@@ -41,10 +43,12 @@ public class DecoratorDemo {
 
     /** 基础组件：美式 */
     public static final class Americano implements Coffee {
+        @Override
         public String description() {
             return "美式咖啡";
         }
 
+        @Override
         public double cost() {
             return 12;
         }
@@ -65,10 +69,12 @@ public class DecoratorDemo {
             super(coffee);
         }
 
+        @Override
         public String description() {
             return coffee.description() + "+牛奶";
         }
 
+        @Override
         public double cost() {
             return coffee.cost() + 3;
         }
@@ -80,10 +86,12 @@ public class DecoratorDemo {
             super(coffee);
         }
 
+        @Override
         public String description() {
             return coffee.description() + "+糖";
         }
 
+        @Override
         public double cost() {
             return coffee.cost() + 2;
         }
@@ -95,10 +103,12 @@ public class DecoratorDemo {
             super(coffee);
         }
 
+        @Override
         public String description() {
             return coffee.description() + "+奶油";
         }
 
+        @Override
         public double cost() {
             return coffee.cost() + 5;
         }

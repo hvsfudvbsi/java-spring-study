@@ -37,6 +37,7 @@ public class AdapterDemo {
     }
 
     public static final class EuropeanPlugImpl implements EuropeanPlug {
+        @Override
         public String connect() {
             return "欧标插头已插入";
         }

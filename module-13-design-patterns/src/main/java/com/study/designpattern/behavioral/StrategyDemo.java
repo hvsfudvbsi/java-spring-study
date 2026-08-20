@@ -22,18 +22,21 @@ public class StrategyDemo {
 
     // ---------- 具体策略 ----------
     public static final class WeChatPay implements PaymentStrategy {
+        @Override
         public String pay(double amount) {
             return "微信支付 ¥" + amount + "（优惠 2 元）";
         }
     }
 
     public static final class AlipayPay implements PaymentStrategy {
+        @Override
         public String pay(double amount) {
             return "支付宝支付 ¥" + amount + "（花呗分期可选）";
         }
     }
 
     public static final class CreditCardPay implements PaymentStrategy {
+        @Override
         public String pay(double amount) {
             return "信用卡支付 ¥" + amount + "（积分抵现）";
         }
@@ -59,6 +62,7 @@ public class StrategyDemo {
     /** 不常用：枚举策略（把一组相关策略收敛进枚举，每个常量一个算法） */
     public enum SortStrategy {
         QUICK_SORT {
+            @Override
             public List<Integer> sort(List<Integer> data) {
                 List<Integer> copy = new ArrayList<>(data);
                 quickSort(copy, 0, copy.size() - 1);
@@ -66,6 +70,7 @@ public class StrategyDemo {
             }
         },
         BUBBLE_SORT {
+            @Override
             public List<Integer> sort(List<Integer> data) {
                 List<Integer> copy = new ArrayList<>(data);
                 for (int i = 0; i < copy.size(); i++) {

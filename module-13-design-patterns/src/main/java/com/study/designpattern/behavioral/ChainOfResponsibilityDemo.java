@@ -34,24 +34,28 @@ public class ChainOfResponsibilityDemo {
 
     // ---------- 具体处理器 ----------
     public static final class TeamLeader extends Approver {
+        @Override
         public String approve(double amount) {
             return amount <= 1000 ? "组长审批通过 ¥" + amount : passToNext(amount);
         }
     }
 
     public static final class Manager extends Approver {
+        @Override
         public String approve(double amount) {
             return amount <= 10000 ? "经理审批通过 ¥" + amount : passToNext(amount);
         }
     }
 
     public static final class Director extends Approver {
+        @Override
         public String approve(double amount) {
             return amount <= 100000 ? "总监审批通过 ¥" + amount : passToNext(amount);
         }
     }
 
     public static final class Ceo extends Approver {
+        @Override
         public String approve(double amount) {
             return "CEO 审批通过 ¥" + amount;
         }

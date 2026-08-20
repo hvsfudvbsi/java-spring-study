@@ -30,12 +30,14 @@ public class MediatorDemo {
     public static final class ChatRoom implements ChatMediator {
         private final List<User> users = new ArrayList<>();
 
+        @Override
         public void addUser(User user) {
             users.add(user);
             System.out.println("    [聊天室] " + user.name() + " 加入");
         }
 
         /** 转发给除发送者外的所有人 */
+        @Override
         public void sendMessage(User from, String message) {
             users.stream()
                     .filter(u -> u != from)
