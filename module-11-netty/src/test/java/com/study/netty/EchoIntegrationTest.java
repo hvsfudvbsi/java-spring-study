@@ -38,10 +38,21 @@ class EchoIntegrationTest {
     }
 
     @Test
-    @DisplayName("真实 TCP 回声链路")
+    @DisplayName("真实 TCP 回声链路：发送消息原样返回")
     void echoRoundTrip() throws Exception {
         String response = EchoClient.run("127.0.0.1", port, "集成测试消息");
         assertNotNull(response, "应收到回声");
         assertTrue(response.contains("集成测试消息"));
+    }
+
+    @Test
+    @DisplayName("真实 TCP 回声链路：连续多次往返均能收到回声（每条消息依次回显）")
+    void echoMultipleRoundTrips() throws Exception {
+        for (int i = 1; i <= 3; i++) {
+            String message = "第" + i + "次往返";
+            String response = EchoClient.run("127.0.0.1", port, message);
+            assertNotNull(response, "第 " + i + " 次应收到回声");
+            assertTrue(response.contains(message));
+        }
     }
 }

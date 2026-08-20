@@ -9,12 +9,14 @@ import io.netty.handler.codec.FixedLengthFrameDecoder;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.LengthFieldPrepender;
 import io.netty.handler.codec.LineBasedFrameDecoder;
+import io.netty.handler.codec.TooLongFrameException;
 import io.netty.util.CharsetUtil;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * 粘包拆包测试：用 EmbeddedChannel 验证四种解码器和自定义编解码器
@@ -116,6 +118,96 @@ class CodecTest {
         ch.writeInbound(frame.readSlice(frame.readableBytes()).copy());
         assertEquals(msg, ch.readInbound());
         frame.release();
+        ch.finish();
+    }
+
+    @Test
+    @DisplayName("LineBasedFrameDecoder 拆包：一行分两批到达，补齐换行才产出")
+    void lineBasedSplitPacket() {
+        EmbeddedChannel ch = new EmbeddedChannel(new LineBasedFrameDecoder(1024));
+        // 第一批：只有 "hel"，没有换行符 -> 不应产出
+        ch.writeInbound(Unpooled.copiedBuffer("hel", CharsetUtil.UTF_8));
+        assertNull(readString(ch), "没有换行符不应产出消息");
+
+        // 第二批：补上 "lo\n"，此时累计为 "hello\n" -> 产出完整一行
+        ch.writeInbound(Unpooled.copiedBuffer("lo\n", CharsetUtil.UTF_8));
+        assertEquals("hello", readString(ch));
+        ch.finish();
+    }
+
+    @Test
+    @DisplayName("FixedLengthFrameDecoder 拆包：不足定长时等待，凑满才产出")
+    void fixedLengthSplitPacket() {
+        EmbeddedChannel ch = new EmbeddedChannel(new FixedLengthFrameDecoder(3));
+        // 第一批 2 字节 < 3 -> 不产出
+        ch.writeInbound(Unpooled.copiedBuffer("ab", CharsetUtil.UTF_8));
+        assertNull(readString(ch), "不足 3 字节不应产出");
+
+        // 第二批 4 字节：累计 "abcdef"，先产出 "abc"，剩余 "def" 留在缓冲区
+        ch.writeInbound(Unpooled.copiedBuffer("cdef", CharsetUtil.UTF_8));
+        assertEquals("abc", readString(ch));
+
+        // 第三批 1 字节：累计 "def" + "g"，产出 "def"，剩余 "g" 等下一批
+        ch.writeInbound(Unpooled.copiedBuffer("g", CharsetUtil.UTF_8));
+        assertEquals("def", readString(ch));
+        ch.finish();
+    }
+
+    @Test
+    @DisplayName("LengthFieldBasedFrameDecoder 超长帧被拒绝（防内存攻击）")
+    void lengthFieldRejectsOversizedFrame() {
+        // maxFrameLength=8：长度头声明的帧超过 8 字节必须拒绝，防止恶意超大分配
+        EmbeddedChannel ch = new EmbeddedChannel(
+                new LengthFieldBasedFrameDecoder(8, 0, 4, 0, 4));
+
+        ByteBuf oversized = Unpooled.buffer();
+        oversized.writeInt(100);  // 长度头声明 100 字节（超过 maxFrameLength=8）
+        oversized.writeBytes(new byte[100]);
+
+        assertThrows(TooLongFrameException.class, () -> ch.writeInbound(oversized),
+                "超长帧应抛出 TooLongFrameException");
+        // 解码器失败路径会自行释放入站缓冲区，这里只需兜底释放未释放的部分
+        if (oversized.refCnt() > 0) {
+            oversized.release();
+        }
+        ch.finish();
+    }
+
+    @Test
+    @DisplayName("自定义解码器粘包：两帧一次到达，循环产出两条消息")
+    void customCodecStickyPackets() {
+        EmbeddedChannel ch = new EmbeddedChannel(new CustomCodecDemo.StringLengthDecoder());
+
+        // 构造两帧 [长度][内容] 拼接在一起（模拟粘包）
+        ByteBuf frames = Unpooled.buffer();
+        byte[] a = "第一帧".getBytes(CharsetUtil.UTF_8);
+        byte[] b = "第二帧".getBytes(CharsetUtil.UTF_8);
+        frames.writeInt(a.length).writeBytes(a);
+        frames.writeInt(b.length).writeBytes(b);
+
+        ch.writeInbound(frames); // 一次写入两帧
+        assertEquals("第一帧", ch.readInbound());
+        assertEquals("第二帧", ch.readInbound());
+        assertNull(ch.readInbound(), "不应有多余消息");
+        ch.finish();
+    }
+
+    @Test
+    @DisplayName("自定义编码器：String 编码为 [4字节长度][UTF-8内容]")
+    void customCodecEncoderWritesLengthHeader() {
+        EmbeddedChannel ch = new EmbeddedChannel(new CustomCodecDemo.StringLengthEncoder());
+        String msg = "编码测试";
+
+        ch.writeOutbound(msg);
+        ByteBuf encoded = ch.readOutbound();
+        try {
+            byte[] bytes = msg.getBytes(CharsetUtil.UTF_8);
+            assertEquals(bytes.length, encoded.getInt(0), "长度头应等于内容字节数");
+            assertEquals(4 + bytes.length, encoded.readableBytes());
+            assertEquals(msg, encoded.slice(4, bytes.length).toString(CharsetUtil.UTF_8), "内容应为原文");
+        } finally {
+            encoded.release();
+        }
         ch.finish();
     }
 }

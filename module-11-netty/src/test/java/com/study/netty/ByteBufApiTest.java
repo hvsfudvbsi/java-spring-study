@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -83,6 +84,82 @@ class ByteBufApiTest {
         copy.setByte(0, (byte) 'Z');
         assertEquals('a', buf.getByte(0)); // 原缓冲区不受影响
         copy.release();
+        buf.release();
+    }
+
+    @Test
+    @DisplayName("引用计数：retain 加 1，release 减 1，归零后不能再访问")
+    void referenceCount() {
+        ByteBuf buf = Unpooled.buffer();
+        assertEquals(1, buf.refCnt());
+
+        buf.retain();  // 借用方 +1
+        assertEquals(2, buf.refCnt());
+        buf.release(); // 借出方归还
+        assertEquals(1, buf.refCnt());
+
+        buf.release(); // 归零：底层内存被回收
+        assertEquals(0, buf.refCnt());
+    }
+
+    @Test
+    @DisplayName("ensureWritable：容量不足时自动扩容（受 maxCapacity 限制）")
+    void ensureWritableGrowsCapacity() {
+        // 初始 capacity 为 0 的小缓冲区，便于观察扩容
+        ByteBuf buf = Unpooled.buffer(0, 64);
+        assertEquals(0, buf.capacity());
+
+        buf.ensureWritable(16);
+        assertTrue(buf.capacity() >= 16, "扩容后至少能容纳 16 字节，实际: " + buf.capacity());
+
+        // 超出 maxCapacity 时扩容失败：抛 IndexOutOfBoundsException 拒绝分配
+        assertThrows(IndexOutOfBoundsException.class, () -> buf.ensureWritable(1024),
+                "超过 maxCapacity=64 扩容应被拒绝");
+        buf.release();
+    }
+
+    @Test
+    @DisplayName("discardReadBytes：丢弃已读部分，回收可写空间但保留未读数据")
+    void discardReadBytesReclaimsSpace() {
+        ByteBuf buf = Unpooled.buffer();
+        buf.writeInt(1);
+        buf.writeInt(2);
+        buf.readInt(); // 读走第一个 int，readerIndex 前进
+
+        assertEquals(4, buf.readableBytes());
+        assertEquals(4, buf.readerIndex());
+
+        buf.discardReadBytes();
+        // 已读的 4 字节被回收：readerIndex 归零，未读的 int 仍在开头
+        assertEquals(0, buf.readerIndex());
+        assertEquals(4, buf.readableBytes());
+        assertEquals(2, buf.getInt(0), "未读数据被前移到开头");
+        buf.release();
+    }
+
+    @Test
+    @DisplayName("readUnsignedInt：负数按无符号解释为 0~2^32-1 的正数")
+    void readUnsignedInt() {
+        ByteBuf buf = Unpooled.buffer();
+        buf.writeInt(-1); // 0xFFFFFFFF，按有符号是 -1
+
+        assertEquals(-1, buf.getInt(0));
+        assertEquals(0xFFFFFFFFL, buf.readUnsignedInt(), "无符号读应是 4294967295");
+        buf.release();
+    }
+
+    @Test
+    @DisplayName("writeZero：写入 N 个 0 字节，可用于占位或对齐")
+    void writeZeroPads() {
+        ByteBuf buf = Unpooled.buffer();
+        buf.writeByte(0xAB);
+        buf.writeZero(3);
+
+        assertEquals(4, buf.readableBytes());
+        // getByte 返回有符号 byte（0xAB 会溢出为负），用 getUnsignedByte 验证原值
+        assertEquals(0xAB, buf.getUnsignedByte(0));
+        assertEquals(0, buf.getUnsignedByte(1));
+        assertEquals(0, buf.getUnsignedByte(3));
         buf.release();
     }
 }

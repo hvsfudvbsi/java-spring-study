@@ -5,6 +5,7 @@ import com.study.netty.http.HttpServer;
 import com.study.netty.udp.UdpClient;
 import com.study.netty.udp.UdpServer;
 import io.netty.channel.Channel;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.net.DatagramSocket;
@@ -16,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class NetworkProtocolIntegrationTest {
 
     @Test
+    @DisplayName("真实 HTTP 链路：Netty 服务端 /health 返回 200 状态 JSON")
     void httpShouldRoundTripThroughNettyServer() throws Exception {
         int port = freeTcpPort();
         Channel server = HttpServer.start(port);
@@ -28,6 +30,7 @@ class NetworkProtocolIntegrationTest {
     }
 
     @Test
+    @DisplayName("真实 UDP 链路：数据报经 Netty 服务端回显")
     void udpShouldRoundTripThroughNettyServer() throws Exception {
         int port = freeUdpPort();
         Channel server = UdpServer.start(port);

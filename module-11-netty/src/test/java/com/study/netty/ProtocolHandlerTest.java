@@ -3,7 +3,6 @@ package com.study.netty;
 import com.study.netty.chat.ChatServerHandler;
 import com.study.netty.heartbeat.HeartbeatServer;
 import com.study.netty.http.HttpServerHandler;
-import com.study.netty.ssl.SslServer;
 import com.study.netty.udp.UdpServer;
 import com.study.netty.websocket.WebSocketFrameHandler;
 import io.netty.buffer.ByteBuf;
@@ -16,8 +15,10 @@ import io.netty.util.concurrent.ImmediateEventExecutor;
 import io.netty.handler.codec.http.DefaultFullHttpRequest;
 import io.netty.handler.codec.http.FullHttpResponse;
 import io.netty.handler.codec.http.HttpHeaderNames;
+import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpVersion;
+import io.netty.handler.codec.http.websocketx.BinaryWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.PingWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.PongWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
@@ -26,12 +27,14 @@ import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.util.InsecureTrustManagerFactory;
 import io.netty.util.CharsetUtil;
 import io.netty.handler.timeout.IdleStateEvent;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -40,6 +43,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ProtocolHandlerTest {
 
     @Test
+    @DisplayName("HTTP /hello 返回 200 与 Hello 正文")
     void httpHandlerShouldReturnRouteResponse() {
         EmbeddedChannel channel = new EmbeddedChannel(new HttpServerHandler());
         DefaultFullHttpRequest request = new DefaultFullHttpRequest(
@@ -56,6 +60,35 @@ class ProtocolHandlerTest {
     }
 
     @Test
+    @DisplayName("HTTP /health 返回 200 与 JSON 状态")
+    void httpHandlerShouldReturnHealthJson() {
+        EmbeddedChannel channel = new EmbeddedChannel(new HttpServerHandler());
+        channel.writeInbound(new DefaultFullHttpRequest(
+                HttpVersion.HTTP_1_1, HttpMethod.GET, "/health"));
+
+        FullHttpResponse response = channel.readOutbound();
+        assertEquals(200, response.status().code());
+        assertEquals("{\"status\":\"UP\"}", response.content().toString(CharsetUtil.UTF_8));
+        response.release();
+        channel.finishAndReleaseAll();
+    }
+
+    @Test
+    @DisplayName("HTTP 带查询字符串仍按路径路由（? 之后被忽略）")
+    void httpHandlerShouldIgnoreQueryString() {
+        EmbeddedChannel channel = new EmbeddedChannel(new HttpServerHandler());
+        channel.writeInbound(new DefaultFullHttpRequest(
+                HttpVersion.HTTP_1_1, HttpMethod.GET, "/hello?name=alice"));
+
+        FullHttpResponse response = channel.readOutbound();
+        assertEquals(200, response.status().code());
+        assertEquals("Hello from Netty HTTP", response.content().toString(CharsetUtil.UTF_8));
+        response.release();
+        channel.finishAndReleaseAll();
+    }
+
+    @Test
+    @DisplayName("HTTP 未知路由返回 404 与路径提示")
     void httpHandlerShouldReturnNotFoundForUnknownRoute() {
         EmbeddedChannel channel = new EmbeddedChannel(new HttpServerHandler());
         channel.writeInbound(new DefaultFullHttpRequest(
@@ -69,6 +102,28 @@ class ProtocolHandlerTest {
     }
 
     @Test
+    @DisplayName("HTTP 非 Keep-Alive 请求：响应不设长连接头，发送后关闭连接")
+    void httpHandlerShouldCloseOnNonKeepAlive() {
+        EmbeddedChannel channel = new EmbeddedChannel(new HttpServerHandler());
+        DefaultFullHttpRequest request = new DefaultFullHttpRequest(
+                HttpVersion.HTTP_1_1, HttpMethod.GET, "/hello");
+        request.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE);
+        channel.writeInbound(request);
+
+        FullHttpResponse response = channel.readOutbound();
+        assertEquals(200, response.status().code());
+        assertNull(response.headers().get(HttpHeaderNames.CONNECTION),
+                "非 Keep-Alive 响应不应带 Connection: keep-alive");
+        response.release();
+
+        // writeAndFlush 完成后的 listener 会关闭连接；runPendingTasks 执行该回调
+        channel.runPendingTasks();
+        assertFalse(channel.isOpen(), "非 Keep-Alive 响应发送后连接应被关闭");
+        channel.finishAndReleaseAll();
+    }
+
+    @Test
+    @DisplayName("UDP 处理器把数据报回显给发送方地址")
     void udpHandlerShouldEchoDatagramToSender() {
         EmbeddedChannel channel = new EmbeddedChannel(new UdpServer.UdpServerHandler());
         InetSocketAddress sender = new InetSocketAddress("127.0.0.1", 19000);
@@ -86,6 +141,7 @@ class ProtocolHandlerTest {
     }
 
     @Test
+    @DisplayName("WebSocket 文本帧回显（echo: 前缀）")
     void websocketHandlerShouldEchoTextFrame() {
         EmbeddedChannel channel = new EmbeddedChannel(new WebSocketFrameHandler());
 
@@ -98,6 +154,21 @@ class ProtocolHandlerTest {
     }
 
     @Test
+    @DisplayName("WebSocket 二进制帧回显相同内容")
+    void websocketHandlerShouldEchoBinaryFrame() {
+        EmbeddedChannel channel = new EmbeddedChannel(new WebSocketFrameHandler());
+
+        channel.writeInbound(new BinaryWebSocketFrame(
+                Unpooled.copiedBuffer("raw-bytes", CharsetUtil.UTF_8)));
+
+        BinaryWebSocketFrame response = channel.readOutbound();
+        assertEquals("raw-bytes", response.content().toString(CharsetUtil.UTF_8));
+        response.release();
+        channel.finishAndReleaseAll();
+    }
+
+    @Test
+    @DisplayName("WebSocket Ping 帧回复 Pong 帧（协议层心跳）")
     void websocketHandlerShouldRespondPongToPingFrame() {
         EmbeddedChannel channel = new EmbeddedChannel(new WebSocketFrameHandler());
 
@@ -110,6 +181,21 @@ class ProtocolHandlerTest {
     }
 
     @Test
+    @DisplayName("WebSocket 未支持帧返回可读错误提示")
+    void websocketHandlerShouldRejectUnsupportedFrame() {
+        EmbeddedChannel channel = new EmbeddedChannel(new WebSocketFrameHandler());
+
+        // 未被业务处理的帧类型（如 Pong 帧主动发送、Continuation 等）返回提示文本
+        channel.writeInbound(new PongWebSocketFrame(Unpooled.copiedBuffer("x", CharsetUtil.UTF_8)));
+
+        TextWebSocketFrame response = channel.readOutbound();
+        assertEquals("unsupported frame: PongWebSocketFrame", response.text());
+        response.release();
+        channel.finishAndReleaseAll();
+    }
+
+    @Test
+    @DisplayName("TLS 客户端 SslContext 按不校验证书模式构建成功")
     void sslContextShouldBuildClientConfiguration() throws Exception {
         SslContext context = SslContextBuilder.forClient()
                 .trustManager(InsecureTrustManagerFactory.INSTANCE)
@@ -119,6 +205,7 @@ class ProtocolHandlerTest {
     }
 
     @Test
+    @DisplayName("心跳服务端：收到 PING 回 PONG，读空闲判定假死并关闭")
     void heartbeatHandlerShouldRespondToPingAndCloseOnReaderIdle() {
         EmbeddedChannel channel = new EmbeddedChannel(new HeartbeatServer.HeartbeatServerHandler());
 
@@ -134,6 +221,28 @@ class ProtocolHandlerTest {
     }
 
     @Test
+    @DisplayName("心跳服务端：普通数据不回 PONG，仅 PING 触发响应")
+    void heartbeatHandlerShouldNotRespondToPlainData() {
+        EmbeddedChannel channel = new EmbeddedChannel(new HeartbeatServer.HeartbeatServerHandler());
+
+        channel.writeInbound(Unpooled.copiedBuffer("HELLO", CharsetUtil.UTF_8));
+        assertNull(channel.readOutbound(), "非 PING 数据不应触发响应");
+        channel.finishAndReleaseAll();
+    }
+
+    @Test
+    @DisplayName("心跳服务端：写空闲不判定假死，只有读空闲才关闭连接")
+    void heartbeatHandlerShouldNotCloseOnWriterIdle() {
+        EmbeddedChannel channel = new EmbeddedChannel(new HeartbeatServer.HeartbeatServerHandler());
+
+        channel.pipeline().fireUserEventTriggered(IdleStateEvent.FIRST_WRITER_IDLE_STATE_EVENT);
+
+        assertTrue(channel.isOpen(), "写空闲不代表客户端假死，不应关闭连接");
+        channel.finishAndReleaseAll();
+    }
+
+    @Test
+    @DisplayName("群聊：NICK 改名 + 消息广播给其他在线成员")
     void chatHandlerShouldRenameAndBroadcastMessage() {
         DefaultChannelGroup channels = new DefaultChannelGroup(ImmediateEventExecutor.INSTANCE);
         EmbeddedChannel first = new EmbeddedChannel(
@@ -153,6 +262,56 @@ class ProtocolHandlerTest {
         first.writeInbound("hello");
 
         assertEquals("Alice: hello", readOutboundEventually(second));
+        first.finishAndReleaseAll();
+        second.finishAndReleaseAll();
+    }
+
+    @Test
+    @DisplayName("群聊：quit 退出时本人收到再见、广播离线并关闭连接")
+    void chatHandlerShouldBroadcastQuit() {
+        DefaultChannelGroup channels = new DefaultChannelGroup(ImmediateEventExecutor.INSTANCE);
+        EmbeddedChannel first = new EmbeddedChannel(
+                DefaultChannelId.newInstance(), new ChatServerHandler(channels));
+        drainOutbound(first);
+        EmbeddedChannel second = new EmbeddedChannel(
+                DefaultChannelId.newInstance(), new ChatServerHandler(channels));
+        runPendingTasks(first, second);
+        drainOutbound(first);
+        drainOutbound(second);
+
+        first.writeInbound("NICK:Alice");
+        assertEquals("[系统] 昵称已改为: Alice", first.<String>readOutbound());
+        assertEquals("[系统] 用户-未知 改名为 Alice", readOutboundEventually(second));
+
+        first.writeInbound("quit");
+        assertEquals("[系统] 再见 Alice！", first.<String>readOutbound());
+        // ctx.close() 触发 channelInactive -> 广播离线
+        assertEquals("[系统] Alice 离开了聊天室（当前在线 1 人）", readOutboundEventually(second));
+        assertFalse(first.isOpen(), "quit 后连接应被关闭");
+        first.finishAndReleaseAll();
+        second.finishAndReleaseAll();
+    }
+
+    @Test
+    @DisplayName("群聊：连接断开（channelInactive）广播离线通知")
+    void chatHandlerShouldBroadcastOnDisconnect() {
+        DefaultChannelGroup channels = new DefaultChannelGroup(ImmediateEventExecutor.INSTANCE);
+        EmbeddedChannel first = new EmbeddedChannel(
+                DefaultChannelId.newInstance(), new ChatServerHandler(channels));
+        drainOutbound(first);
+        EmbeddedChannel second = new EmbeddedChannel(
+                DefaultChannelId.newInstance(), new ChatServerHandler(channels));
+        runPendingTasks(first, second);
+        drainOutbound(first);
+        drainOutbound(second);
+
+        first.writeInbound("NICK:Alice");
+        assertEquals("[系统] 昵称已改为: Alice", first.<String>readOutbound());
+        assertEquals("[系统] 用户-未知 改名为 Alice", readOutboundEventually(second));
+
+        // 直接关闭连接，触发 channelInactive
+        first.close();
+        assertEquals("[系统] Alice 离开了聊天室（当前在线 1 人）", readOutboundEventually(second));
         first.finishAndReleaseAll();
         second.finishAndReleaseAll();
     }
