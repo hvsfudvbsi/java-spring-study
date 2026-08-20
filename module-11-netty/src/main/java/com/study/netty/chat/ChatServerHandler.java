@@ -49,7 +49,7 @@ public class ChatServerHandler extends SimpleChannelInboundHandler<String> {
         System.out.println("[上线] " + defaultNick + " 连接: " + channel.remoteAddress());
     }
 
-    /** 收到消息：NICK:xxx 改名，其余内容群发 */
+    /** 收到消息：NICK:xxx 改名、@昵称 私聊、quit 退出，其余内容群发 */
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, String msg) {
         Channel channel = ctx.channel();
@@ -64,6 +64,12 @@ public class ChatServerHandler extends SimpleChannelInboundHandler<String> {
             return;
         }
 
+        if (msg.startsWith("@")) {
+            // 私聊：@昵称 内容，只发给指定用户（不广播）
+            sendPrivateMessage(channel, nick, msg);
+            return;
+        }
+
         if ("quit".equalsIgnoreCase(msg.trim())) {
             channel.writeAndFlush("[系统] 再见 " + nick + "！");
             ctx.close(); // 触发 channelInactive
@@ -73,6 +79,36 @@ public class ChatServerHandler extends SimpleChannelInboundHandler<String> {
         // 群发消息（格式: 昵称: 内容）
         System.out.println("[消息] " + nick + ": " + msg);
         broadcast(nick + ": " + msg, channel);
+    }
+
+    /** 私聊：解析 @昵称 内容，只发给昵称匹配的那一个用户 */
+    private void sendPrivateMessage(Channel sender, String senderNick, String raw) {
+        int spaceIndex = raw.indexOf(' ');
+        if (spaceIndex <= 1) {
+            // 没有 '@昵称 内容' 的结构（如单独一个 @ 或 @昵称 无内容）
+            sender.writeAndFlush("[系统] 私聊格式: @昵称 内容，例如 '@Alice 你好'");
+            return;
+        }
+        String targetNick = raw.substring(1, spaceIndex).trim();
+        String content = raw.substring(spaceIndex + 1).trim();
+        if (targetNick.isEmpty() || content.isEmpty()) {
+            sender.writeAndFlush("[系统] 私聊格式: @昵称 内容，例如 '@Alice 你好'");
+            return;
+        }
+
+        // 遍历在线用户，匹配昵称属性（AttributeKey）
+        for (Channel ch : channels) {
+            if (targetNick.equals(ch.attr(NICKNAME).get())) {
+                ch.writeAndFlush("[私聊] " + senderNick + ": " + content);
+                if (ch != sender) {
+                    // 给发送者回执，确认已送达
+                    sender.writeAndFlush("[私聊→" + targetNick + "] 已送达");
+                }
+                return;
+            }
+        }
+        // 目标不在线
+        sender.writeAndFlush("[系统] 用户 " + targetNick + " 不在线");
     }
 
     /** 连接断开：移出群组 + 广播离线通知 */

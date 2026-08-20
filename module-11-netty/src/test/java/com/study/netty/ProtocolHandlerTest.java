@@ -293,6 +293,85 @@ class ProtocolHandlerTest {
     }
 
     @Test
+    @DisplayName("群聊：@昵称 私聊只发给指定用户，其他用户收不到")
+    void chatHandlerShouldSendPrivateMessageOnlyToTarget() {
+        DefaultChannelGroup channels = new DefaultChannelGroup(ImmediateEventExecutor.INSTANCE);
+        EmbeddedChannel alice = new EmbeddedChannel(
+                DefaultChannelId.newInstance(), new ChatServerHandler(channels));
+        drainOutbound(alice);
+        EmbeddedChannel bob = new EmbeddedChannel(
+                DefaultChannelId.newInstance(), new ChatServerHandler(channels));
+        EmbeddedChannel carol = new EmbeddedChannel(
+                DefaultChannelId.newInstance(), new ChatServerHandler(channels));
+        assertEquals(3, channels.size());
+        runPendingTasks(alice, bob, carol);
+        drainOutbound(alice);
+        drainOutbound(bob);
+        drainOutbound(carol);
+
+        // 三个用户都设置昵称
+        alice.writeInbound("NICK:Alice");
+        assertEquals("[系统] 昵称已改为: Alice", alice.<String>readOutbound());
+        readOutboundEventually(bob); // 改名广播
+        readOutboundEventually(carol);
+        bob.writeInbound("NICK:Bob");
+        assertEquals("[系统] 昵称已改为: Bob", bob.<String>readOutbound());
+        readOutboundEventually(alice);
+        readOutboundEventually(carol);
+        carol.writeInbound("NICK:Carol");
+        assertEquals("[系统] 昵称已改为: Carol", carol.<String>readOutbound());
+        readOutboundEventually(alice);
+        readOutboundEventually(bob);
+
+        // Alice 私聊 Bob
+        alice.writeInbound("@Bob 你好，这是私聊");
+
+        // 只有 Bob 收到私聊，Carol 收不到
+        assertEquals("[私聊] Alice: 你好，这是私聊", readOutboundEventually(bob));
+        assertNull(readOutboundEventually(carol), "私聊不应广播给其他用户");
+        // 发送者 Alice 收到送达回执
+        assertEquals("[私聊→Bob] 已送达", readOutboundEventually(alice));
+
+        alice.finishAndReleaseAll();
+        bob.finishAndReleaseAll();
+        carol.finishAndReleaseAll();
+    }
+
+    @Test
+    @DisplayName("群聊：私聊不存在的用户提示不在线")
+    void chatHandlerShouldReportOfflinePrivateTarget() {
+        DefaultChannelGroup channels = new DefaultChannelGroup(ImmediateEventExecutor.INSTANCE);
+        EmbeddedChannel alice = new EmbeddedChannel(
+                DefaultChannelId.newInstance(), new ChatServerHandler(channels));
+        drainOutbound(alice);
+        alice.writeInbound("NICK:Alice");
+        assertEquals("[系统] 昵称已改为: Alice", alice.<String>readOutbound());
+
+        alice.writeInbound("@Nobody 有人吗");
+
+        assertEquals("[系统] 用户 Nobody 不在线", readOutboundEventually(alice));
+        alice.finishAndReleaseAll();
+    }
+
+    @Test
+    @DisplayName("群聊：私聊格式错误（@ 后无内容）返回格式提示")
+    void chatHandlerShouldRejectMalformedPrivateMessage() {
+        DefaultChannelGroup channels = new DefaultChannelGroup(ImmediateEventExecutor.INSTANCE);
+        EmbeddedChannel alice = new EmbeddedChannel(
+                DefaultChannelId.newInstance(), new ChatServerHandler(channels));
+        drainOutbound(alice);
+        alice.writeInbound("NICK:Alice");
+        assertEquals("[系统] 昵称已改为: Alice", alice.<String>readOutbound());
+
+        alice.writeInbound("@");
+        assertEquals("[系统] 私聊格式: @昵称 内容，例如 '@Alice 你好'", readOutboundEventually(alice));
+
+        alice.writeInbound("@Bob");
+        assertEquals("[系统] 私聊格式: @昵称 内容，例如 '@Alice 你好'", readOutboundEventually(alice));
+        alice.finishAndReleaseAll();
+    }
+
+    @Test
     @DisplayName("群聊：连接断开（channelInactive）广播离线通知")
     void chatHandlerShouldBroadcastOnDisconnect() {
         DefaultChannelGroup channels = new DefaultChannelGroup(ImmediateEventExecutor.INSTANCE);

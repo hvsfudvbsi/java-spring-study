@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets;
  * 运行：
  *   1. 先启动 ChatServer
  *   2. 启动多个 ChatClient 实例（IDEA: 右上角 Run -> Edit Configurations 可开多个）
- *   3. 输入 'NICK:小明' 设置昵称，直接输入内容聊天
+ *   3. 输入 'NICK:小明' 设置昵称，输入 '@昵称 内容' 私聊，直接输入内容群聊
  *
  * 多线程模型：
  *   - 主线程：读取控制台输入并发送
@@ -47,7 +47,7 @@ public class ChatClient {
                     });
 
             Channel channel = bootstrap.connect("127.0.0.1", ChatServer.PORT).sync().channel();
-            System.out.println("已连接到群聊服务器，输入 'NICK:昵称' 设置昵称，输入 'quit' 退出");
+            System.out.println("已连接到群聊服务器，输入 'NICK:昵称' 设置昵称，'@昵称 内容' 私聊，输入 'quit' 退出");
 
             // 主线程：读取控制台输入并发送
             BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));

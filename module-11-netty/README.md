@@ -24,7 +24,7 @@
 |------|------|------|--------|
 | TCP 回声 | `echo/EchoServer` + `echo/EchoClient` | 收到什么回什么 | NIO TCP 服务端/客户端完整启动流程 |
 | TCP 心跳 | `heartbeat/HeartbeatServer` + `HeartbeatClient` | 检测假死连接、定时发送 PING | IdleStateHandler、userEventTriggered |
-| TCP IM | `chat/ChatServer` + `ChatClient` | 多人实时聊天（完整项目） | ChannelGroup 广播、StringEncoder/Decoder、AttributeKey 属性 |
+| TCP IM | `chat/ChatServer` + `ChatClient` | 多人实时聊天（完整项目），支持昵称与 `@昵称` 私聊 | ChannelGroup 广播、StringEncoder/Decoder、AttributeKey 属性、私聊定向发送 |
 | HTTP | `http/HttpServer` + `http/HttpClient` | `/hello`、`/health` 和 404 路由 | HttpServerCodec、HttpObjectAggregator、Keep-Alive |
 | UDP | `udp/UdpServer` + `udp/UdpClient` | 无连接数据报回显 | NioDatagramChannel、DatagramPacket、发送方地址 |
 | WebSocket | `websocket/WebSocketServer` | HTTP Upgrade 后处理文本、二进制和 Ping/Pong 帧 | WebSocketServerProtocolHandler、WebSocketFrame、协议心跳 |
@@ -63,7 +63,7 @@ mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.heart
 mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.chat.ChatServer
 # 终端 2/3：两个群聊客户端（IDEA 中可开多个实例，实现多人聊天）
 mvn compile exec:java -pl module-11-netty -Dexec.mainClass=com.study.netty.chat.ChatClient
-# 客户端输入 'NICK:小明' 设置昵称，输入 'quit' 退出
+# 客户端输入 'NICK:小明' 设置昵称，输入 '@小红 你好' 私聊（只发给小红），输入 'quit' 退出
 ```
 
 ### 实操四：HTTP
@@ -285,9 +285,10 @@ TLS Handler 必须放在业务协议 Handler 前面：
 群聊服务把在线 Channel 放进 `ChannelGroup`，每条消息遍历在线连接并排除发送者：
 
 - `channelActive`：设置默认昵称、加入群组、发送欢迎消息。
-- `channelRead0`：处理 `NICK:` 改名、`quit` 退出和普通广播消息。
+- `channelRead0`：处理 `NICK:` 改名、`@昵称 内容` 私聊、`quit` 退出和普通广播消息。
+- 私聊实现：解析 `@昵称 内容` 后**遍历在线用户匹配昵称属性**，只向目标 Channel 写入并给发送者回执；目标不在线或格式错误时提示发送者，不广播给其他人。
 - `channelInactive`：移出群组并广播离线通知。
-- `AttributeKey` 把昵称附加到 Channel，避免把连接状态放进不安全的全局 Map。
+- `AttributeKey` 把昵称附加到 Channel，避免把连接状态放进不安全的全局 Map；私聊正是通过遍历 `channels` 读取每个连接的昵称属性来定向。
 - 测试 EmbeddedChannel 多连接时必须使用不同 ChannelId；默认 EmbeddedChannel 可能共享 ID，ChannelGroup 会把连接误认为同一个。
 
 源码：`chat/ChatServer`、`chat/ChatServerHandler`、`chat/ChatClient`；测试：`ProtocolHandlerTest`。
@@ -315,6 +316,6 @@ TLS Handler 必须放在业务协议 Handler 前面：
 
 1. 给 EchoServer 加上 `LineBasedFrameDecoder`，改成"按行回声"协议。
 2. 心跳客户端把 `WRITER_IDLE_SECONDS` 改成 1 秒，观察服务端是否还断开（理解读/写空闲的区别）。
-3. 群聊增加私聊功能：`@昵称 消息` 只发给指定用户（提示：遍历 CHANNELS 匹配昵称属性）。
+3. 给群聊增加"群文件/图片"消息类型（提示：定义 `FILE:昵称:文件名:内容` 协议，按类型分发）。
 4. 用 `LengthFieldBasedFrameDecoder` 设计一个带消息类型的协议（1 字节类型 + 4 字节长度 + 内容）。
 5. 给心跳服务器加"连续 N 次没收到心跳才断开"的逻辑（用计数 + 定时重置）。

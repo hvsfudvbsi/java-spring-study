@@ -19,14 +19,17 @@ import io.netty.util.CharsetUtil;
  *   - 多个客户端可同时连接，任意一人发言全员可见
  *   - 新用户加入/退出时广播通知
  *   - 支持设置昵称（第一条消息格式: NICK:昵称）
+ *   - 支持私聊：@昵称 内容 只发给指定用户（不广播）
  *
  * 技术点：
  *   - StringDecoder/StringEncoder：字符串编解码（简化消息处理）
  *   - ChannelGroup：Netty 内置的 Channel 集合，一键群发（自动排除自己）
  *   - ChannelOption.SO_BACKLOG：服务端等待队列
+ *   - AttributeKey：昵称挂在 Channel 属性上，私聊时遍历匹配
  *
  * 协议（字符串，按行）：
  *   NICK:小明        -> 设置昵称
+ *   @小明 你好       -> 私聊（只发给小明，其他人看不到）
  *   其他任意内容      -> 群聊消息
  *   quit             -> 退出聊天
  *
@@ -61,7 +64,7 @@ public class ChatServer {
             Channel serverChannel = bootstrap.bind(PORT).sync().channel();
             System.out.println("========== 群聊服务器启动 ==========");
             System.out.println("监听端口: " + PORT);
-            System.out.println("连接协议: 首条消息 'NICK:昵称' 设置昵称，之后直接发消息");
+            System.out.println("连接协议: 首条消息 'NICK:昵称' 设置昵称，'@昵称 内容' 私聊，之后直接发消息群聊");
             serverChannel.closeFuture().sync();
         } finally {
             boss.shutdownGracefully();
