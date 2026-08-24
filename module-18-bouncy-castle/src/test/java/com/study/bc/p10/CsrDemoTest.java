@@ -76,4 +76,56 @@ class CsrDemoTest {
         assertTrue(CertificateDemo.verifySignature(cert, caKey.getPublic()));
         CertificateDemo.checkValidity(cert);
     }
+
+    @Test
+    @DisplayName("二级 CA 链：根签发中间 CA（CA=true），中间 CA 基于 CSR 签发叶证书，PKIX 完整链验证通过")
+    void twoTierChain() {
+        KeyPair rootKey = keyPair();
+        X500Name rootName = new X500Name("CN=Two-Tier Root CA, O=Study");
+        X509Certificate rootCert = CertificateDemo.selfSignedCa(rootKey, rootName);
+
+        // 中间 CA：先构建自身 CSR，根 CA 签发（CA=true + keyCertSign）
+        KeyPair intermediateKey = keyPair();
+        PKCS10CertificationRequest intermediateCsr =
+                CsrDemo.buildCsr(intermediateKey, "CN=Two-Tier Intermediate CA, O=Study", null);
+        X509Certificate intermediateCert = CsrDemo.issueIntermediateFromCsr(rootName, rootKey, intermediateCsr);
+        assertTrue(intermediateCert.getBasicConstraints() >= 0); // CA=true
+        assertEquals(new X500Name("CN=Two-Tier Intermediate CA, O=Study"),
+                new X500Name(intermediateCert.getSubjectX500Principal().getName()));
+        assertTrue(CertificateDemo.verifySignature(intermediateCert, rootKey.getPublic()));
+        assertEquals(new X500Name("CN=Two-Tier Root CA, O=Study"),
+                new X500Name(intermediateCert.getIssuerX500Principal().getName()));
+
+        // 叶证书：中间 CA 基于申请人 CSR 签发
+        KeyPair applicant = keyPair();
+        PKCS10CertificationRequest leafCsr = CsrDemo.buildCsr(applicant, SUBJECT_DN, "csr.example.com");
+        X509Certificate leaf = CsrDemo.issueFromCsr(intermediateCsr.getSubject(), intermediateKey, leafCsr);
+        assertTrue(leaf.getBasicConstraints() == -1); // 叶证书非 CA
+        assertTrue(CertificateDemo.verifySignature(leaf, intermediateKey.getPublic()));
+        assertEquals(new X500Name("CN=Two-Tier Intermediate CA, O=Study"),
+                new X500Name(leaf.getIssuerX500Principal().getName()));
+        assertTrue(java.util.Arrays.equals(applicant.getPublic().getEncoded(), leaf.getPublicKey().getEncoded()));
+
+        // 完整链验证（叶→中间→根）
+        assertTrue(CsrDemo.verifyChain(leaf, intermediateCert, rootCert));
+        CertificateDemo.checkValidity(leaf);
+    }
+
+    @Test
+    @DisplayName("二级 CA 链反例：无关根 CA 无法通过完整链验证")
+    void twoTierChainWrongRootFails() {
+        KeyPair rootKey = keyPair();
+        X500Name rootName = new X500Name("CN=Two-Tier Root CA, O=Study");
+        X509Certificate rootCert = CertificateDemo.selfSignedCa(rootKey, rootName);
+        KeyPair intermediateKey = keyPair();
+        PKCS10CertificationRequest intermediateCsr =
+                CsrDemo.buildCsr(intermediateKey, "CN=Two-Tier Intermediate CA, O=Study", null);
+        X509Certificate intermediateCert = CsrDemo.issueIntermediateFromCsr(rootName, rootKey, intermediateCsr);
+        KeyPair applicant = keyPair();
+        X509Certificate leaf = CsrDemo.issueFromCsr(intermediateCsr.getSubject(), intermediateKey,
+                CsrDemo.buildCsr(applicant, SUBJECT_DN, "csr.example.com"));
+
+        X509Certificate unrelatedRoot = CertificateDemo.selfSignedCa(keyPair(), new X500Name("CN=Evil Root CA"));
+        assertFalse(CsrDemo.verifyChain(leaf, intermediateCert, unrelatedRoot));
+    }
 }

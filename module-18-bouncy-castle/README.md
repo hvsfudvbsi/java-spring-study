@@ -23,9 +23,9 @@
 | `cert` | `CertificateDemo` | X.509 证书：CA 自签名根证书、签发服务器证书、信任链/有效期/签名验证 |
 | `cert` | `Pkcs12Demo` | PKCS#12 密钥库：私钥+证书链打包（.p12 字节流）、读回还原、口令保护 |
 | `cms` | `CmsDemo` | CMS（RFC 5652）：数字信封 EnvelopedData（AES-CBC + RSA 密钥封装）、PKCS#7 签名（**attach 内嵌 / detach 分离**）、**PEM 导出 .p7m/.p7s/.p7e + openssl 命令行验证** |
-| `p10` | `CsrDemo` | PKCS#10（P10）：**CSR 构建**（Subject+公钥+SAN 扩展）、验签、**CA 基于 CSR 签发证书** |
+| `p10` | `CsrDemo` | PKCS#10（P10）：**CSR 构建**（Subject+公钥+SAN 扩展）、验签、**CA 基于 CSR 签发证书**、**二级 CA 链（根→中间→叶）+ PKIX 完整链验证** |
 
-测试：`src/test/java/com/study/bc/**` 共 **87 个**（每个算法往返、篡改检测、错钥/错数据拒绝、已知向量、证书链/密钥库、SM2 底层/互操作、CBC 块翻转、CMS 信封与签名、PKCS#10 CSR、PEM 导出往返）。
+测试：`src/test/java/com/study/bc/**` 共 **89 个**（每个算法往返、篡改检测、错钥/错数据拒绝、已知向量、证书链/密钥库、SM2 底层/互操作、CBC 块翻转、CMS 信封与签名、PKCS#10 CSR、PEM 导出往返、二级 CA 链）。
 
 ## 二、运行方式
 
@@ -178,6 +178,21 @@ CA:     用 CSR 内嵌公钥验签（证明申请人持有私钥）-> 用 CSR �
   证明申请人**确实持有对应私钥**（换公钥/篡改字节都验不过）。
 - **证书签发**：CA 用 `JcaX509v3CertificateBuilder` 取 CSR 的 Subject/公钥（沿用请求的 SAN 扩展）
   签发证书返回申请人。私钥全程不出申请人本机。
+
+**二级 CA 链（`CsrDemo` demo 第 5 节，真实 PKI 的纵深结构）：**
+
+```
+根 CA（自签名，离线保存）→ 中间 CA（基于自身 CSR 由根签发，CA=true + keyCertSign）→ 叶证书（基于申请人 CSR 由中间 CA 签发）
+```
+
+- 根 CA 自签名后**离线保存**（泄露根私钥 = 整个 PKI 失守）；日常签发由中间 CA 承担，
+  可随时吊销/更换中间 CA 而不影响根。
+- **中间 CA 也用 CSR 申请**：先构建自己的 CSR，根用 `issueIntermediateFromCsr` 签发
+  （BasicConstraints CA=true + KeyUsage keyCertSign|cRLSign，有效期 5 年）——CA 证书必须能签证书。
+- **完整链验证**：`verifyChain(叶, 中间, 根)` 用 PKIX 一次验证「叶→中间→根」整条链
+  （`CertPathValidator` + TrustAnchor=根，路径传 `List.of(叶, 中间)`）；无关根无法通过。
+- 关键细节：叶证书的 Issuer 直接复用中间 CSR 的 Subject 对象（`intermediateCsr.getSubject()`），
+  避免 DN 字符串往返改变编码导致链匹配失败（同 X.509 章节的坑）。
 
 ## 四、动手练习
 
@@ -364,16 +379,18 @@ CA:     用 CSR 内嵌公钥验签（证明申请人持有私钥）-> 用 CSR �
 | 信封往返（私钥解封一致）/ 错误私钥拒绝 | 数字信封：只有收件人私钥能解封（密钥封装安全） |
 | PEM 往返（BEGIN/END + base64 还原 DER）/ 导出文件重解析并验证（.p7m/.p7s/.p7e + 配套证书密钥） | PEM 是 openssl 可读的互操作格式，导出内容无损 |
 
-### p10 — PKCS#10 CSR 与签发（5 个）
+### p10 — PKCS#10 CSR 与签发（7 个）
 
 | 测试 | 守护场景 |
 |---|---|
 | Subject/公钥/SAN 读取、无 SAN 空列表 | CSR 构建内容正确（extensionRequest 属性） |
 | 申请人公钥验签通过 / 他人公钥失败 / 篡改字节失败 | CSR 自证「确实持有私钥」 |
 | CA 签发证书（Subject/公钥/SAN 沿用、CA 验签、有效期） | 证书签发流程端到端 |
+| 二级链签发（中间 CA 为 CA=true + keyCertSign、叶证书非 CA、各层 Issuer/验签正确） | 根→中间→叶的签发层级约束 |
+| 二级链 PKIX 完整链验证通过 / 无关根失败 | 纵深 PKI 的信任链只认受信根 |
 
 ## 七、验证
 
-- `mvn test -pl module-18-bouncy-castle`：87 个测试全绿。
+- `mvn test -pl module-18-bouncy-castle`：89 个测试全绿。
 - 全量 `mvn clean verify`：BUILD SUCCESS、0 checkstyle 违规。
-- 实际运行 `Main`：10 个小节全部往返验证通过（哈希向量、AES 四模式、SM2/SM3/SM4 信封、签名五种、PEM 还原、DH/ECDH 协商一致、CA 签发与信任链、PKCS#12 打包还原、CMS 信封与 attach/detach 签名、CSR 构建验签与证书签发）；[9] 节自动执行 openssl 三条命令全部成功（attach/detach 验签 Verification successful、信封解密内容一致）。
+- 实际运行 `Main`：10 个小节全部往返验证通过（哈希向量、AES 四模式、SM2/SM3/SM4 信封、签名五种、PEM 还原、DH/ECDH 协商一致、CA 签发与信任链、PKCS#12 打包还原、CMS 信封与 attach/detach 签名、CSR 构建验签与证书签发、**二级 CA 链完整链验证 true / 无关根 false**）；[9] 节自动执行 openssl 三条命令全部成功（attach/detach 验签 Verification successful、信封解密内容一致）。

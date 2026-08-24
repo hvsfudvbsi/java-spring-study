@@ -122,13 +122,30 @@ public final class CsrDemo {
         return dns;
     }
 
-    /** CA 基于 CSR 签发证书：用 CSR 的 Subject/公钥（沿用请求的 SAN 扩展）签发 X.509 证书。 */
+    /** CA 基于 CSR 签发叶证书（CA=false，有效期 1 年，沿用请求的 SAN 扩展）。 */
     public static X509Certificate issueFromCsr(X500Name caName, KeyPair caKey, PKCS10CertificationRequest csr) {
+        return issueFromCsr(caName, caKey, csr, false, 365L);
+    }
+
+    /** 根 CA 基于 CSR 签发中间 CA 证书（BasicConstraints: CA=true + keyCertSign，有效期 5 年）。 */
+    public static X509Certificate issueIntermediateFromCsr(X500Name rootName, KeyPair rootKey,
+            PKCS10CertificationRequest intermediateCsr) {
+        return issueFromCsr(rootName, rootKey, intermediateCsr, true, 1825L);
+    }
+
+    /** 二级 CA 链验证：叶证书 → 中间 CA → 根 CA（PKIX 完整链，需所有证书均有效）。 */
+    public static boolean verifyChain(X509Certificate leaf, X509Certificate intermediate, X509Certificate root) {
+        return CertificateDemo.verifyChain(java.util.List.of(leaf, intermediate), root);
+    }
+
+    /** 用签发者私钥基于 CSR 签发证书（内部通用）。 */
+    private static X509Certificate issueFromCsr(X500Name issuer, KeyPair issuerKey,
+            PKCS10CertificationRequest csr, boolean isCa, long validityDays) {
         try {
             long now = System.currentTimeMillis();
             JcaX509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
-                    caName, new BigInteger(64, RANDOM),
-                    new Date(now - 86_400_000L), new Date(now + 365L * 86_400_000L),
+                    issuer, new BigInteger(64, RANDOM),
+                    new Date(now - 86_400_000L), new Date(now + validityDays * 86_400_000L),
                     csr.getSubject(), publicKeyOf(csr));
             // 沿用 CSR 请求的 SAN 域名扩展（真实 CA 会按策略校验/改写）
             Extensions extensions = csr.getRequestedExtensions();
@@ -136,8 +153,14 @@ public final class CsrDemo {
                 builder.addExtension(Extension.subjectAlternativeName, false,
                         extensions.getExtension(Extension.subjectAlternativeName).getParsedValue());
             }
-            builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
-            ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA").build(caKey.getPrivate());
+            builder.addExtension(Extension.basicConstraints, true, new BasicConstraints(isCa));
+            if (isCa) {
+                // CA 证书必须能签证书：keyCertSign + cRLSign（RFC 5280）
+                builder.addExtension(Extension.keyUsage, true, new org.bouncycastle.asn1.x509.KeyUsage(
+                        org.bouncycastle.asn1.x509.KeyUsage.keyCertSign
+                                | org.bouncycastle.asn1.x509.KeyUsage.cRLSign));
+            }
+            ContentSigner signer = new JcaContentSignerBuilder("SHA256withRSA").build(issuerKey.getPrivate());
             return new JcaX509CertificateConverter().setProvider("BC").getCertificate(builder.build(signer));
         } catch (Exception e) {
             throw new IllegalStateException("基于 CSR 签发证书失败", e);
@@ -184,6 +207,44 @@ public final class CsrDemo {
         System.out.println("   证书公钥与 CSR 公钥一致: "
                 + java.util.Arrays.equals(cert.getPublicKey().getEncoded(), publicKeyOf(csr).getEncoded()));
         System.out.println("   CA 验签证书: " + CertificateDemo.verifySignature(cert, caKey.getPublic()));
+        System.out.println();
+
+        // 5) 二级 CA 链：根 CA → 中间 CA → 叶证书（全链路基于 CSR 签发）
+        twoTierCaDemo(csr);
+    }
+
+    /** 二级 CA 签发流程演示：根自签名 → 中间 CA（基于自身 CSR）→ 叶证书（基于申请人 CSR）→ 完整链验证。 */
+    private static void twoTierCaDemo(PKCS10CertificationRequest leafCsr) {
+        System.out.println("5) 二级 CA 链（根 CA → 中间 CA → 基于 CSR 签发叶证书）:");
+
+        // ① 根 CA 自签名（离线保存，私钥最安全）
+        KeyPair rootKey = CertificateDemo.generateKeyPair();
+        X500Name rootName = new X500Name("CN=Study Two-Tier Root CA, O=Study");
+        X509Certificate rootCert = CertificateDemo.selfSignedCa(rootKey, rootName);
+        System.out.println("   根 CA 自签名: " + rootCert.getSubjectX500Principal());
+
+        // ② 中间 CA：先构建自己的 CSR，再由根 CA 签发（CA=true + keyCertSign，5 年）
+        KeyPair intermediateKey = CertificateDemo.generateKeyPair();
+        PKCS10CertificationRequest intermediateCsr =
+                buildCsr(intermediateKey, "CN=Study Intermediate CA, O=Study", null);
+        X509Certificate intermediateCert = issueIntermediateFromCsr(rootName, rootKey, intermediateCsr);
+        System.out.println("   中间 CA（根签发, CA=true）: " + intermediateCert.getSubjectX500Principal());
+
+        // ③ 叶证书：中间 CA 基于申请人 CSR 签发（1 年）；Issuer 复用 CSR 的 Subject 对象避免 DN 编码往返
+        X509Certificate leafCert = issueFromCsr(intermediateCsr.getSubject(), intermediateKey, leafCsr);
+        System.out.println("   叶证书（中间 CA 签发）: " + leafCert.getSubjectX500Principal()
+                + ", SAN=" + CertificateDemo.subjectAltNames(leafCert));
+        System.out.println();
+
+        // ④ 逐层验签 + PKIX 完整链
+        System.out.println("   中间 CA 用根公钥验签: " + CertificateDemo.verifySignature(intermediateCert, rootKey.getPublic()));
+        System.out.println("   叶证书用中间 CA 公钥验签: " + CertificateDemo.verifySignature(leafCert, intermediateKey.getPublic()));
+        System.out.println("   PKIX 完整链验证（叶→中间→根）: " + verifyChain(leafCert, intermediateCert, rootCert));
+
+        // ⑤ 反例：无关根无法通过完整链验证
+        X509Certificate unrelatedRoot = CertificateDemo.selfSignedCa(
+                CertificateDemo.generateKeyPair(), new X500Name("CN=Evil Root CA, O=Study"));
+        System.out.println("   无关根验证（应为 false）: " + verifyChain(leafCert, intermediateCert, unrelatedRoot));
         System.out.println();
     }
 }

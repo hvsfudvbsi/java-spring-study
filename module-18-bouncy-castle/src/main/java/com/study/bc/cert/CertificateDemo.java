@@ -120,20 +120,28 @@ public final class CertificateDemo {
         }
     }
 
-    /** 信任链验证：leaf 必须由 trustAnchor 直接签发（单级链演示）。 */
-    public static boolean verifyChain(X509Certificate leaf, X509Certificate trustAnchor) {
+    /**
+     * 信任链验证（通用）：path 为「叶 → … → 直接签发者」的证书列表（叶在前、签发者在后），
+     * trustAnchor 为受信根证书；PKIX 算法验证签名、有效期、BasicConstraints、路径约束。
+     */
+    public static boolean verifyChain(java.util.List<? extends X509Certificate> path, X509Certificate trustAnchor) {
         try {
             CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            CertPath path = cf.generateCertPath(List.of(leaf));
+            CertPath certPath = cf.generateCertPath(path);
             PKIXParameters params = new PKIXParameters(Set.of(new TrustAnchor(trustAnchor, null)));
             params.setRevocationEnabled(false); // 演示环境不做 OCSP/CRL
             java.security.cert.CertPathValidator validator =
                     java.security.cert.CertPathValidator.getInstance("PKIX");
-            validator.validate(path, params);
+            validator.validate(certPath, params);
             return true;
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /** 单级链验证：leaf 必须由 trustAnchor 直接签发。 */
+    public static boolean verifyChain(X509Certificate leaf, X509Certificate trustAnchor) {
+        return verifyChain(List.of(leaf), trustAnchor);
     }
 
     /** 读取证书 SAN（Subject Alternative Name）域名列表。 */
