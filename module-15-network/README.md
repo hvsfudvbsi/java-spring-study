@@ -250,7 +250,19 @@ ARP 报文（以太网+IPv4 固定 28 字节）字段：
 
 - 只有等待握手应答的状态（SYN_SENT/SYN_RECEIVED）允许 RTO，其余状态收到该事件抛非法转换。
 - 每次重新发起握手 / 握手成功 / 放弃连接后，重试计数清零（下一次从头算）。
-- 建连**之后**的假死检测靠 keep-alive 探测（见 module-11 的 `IdleStateHandler` 心跳）与 TCP timestamps。
+
+**keep-alive 假死检测（连接建立之后，面试常问）：** 连接空闲后对端进程崩溃/网络断开，
+本端不知道——`TcpStateMachine` 新增 `PROBE_TIMEOUT` 事件模拟探测：
+
+```text
+ESTABLISHED + 空闲 -> 发探测包 -> 超时无响应 -> 再发（计数 +1）
+  -> 连续 MAX_PROBES=3 次无响应 -> 判定对端假死 -> CLOSED（释放连接）
+  -> 期间收到对端任何报文（RECV_*）-> 计数清零（对端还活着）
+```
+
+- 网络层没有心跳协议，TCP keep-alive 就是最朴素的"对方还在吗"（Linux 默认探测 9 次、每次间隔 75s，约 11 分钟判定假死）。
+- 应用层心跳（带业务语义的 PING/PONG）见 module-11 的 `IdleStateHandler`，两者解决的是一样的"传输层连接 ≠ 业务层存活"问题。
+- `PROBE_TIMEOUT` 只在 ESTABLISHED 合法，其余状态抛非法转换。
 
 本模块的 `TcpHeader` 可构造 SYN/FIN/ACK 报文观察标志位，`TcpStateMachine` 可模拟完整状态流转（含 RST 重置与半开连接检测）；真实抓包用 `tcpdump`/Wireshark（或 `curl -v`）。
 
@@ -417,7 +429,7 @@ DNS 把域名解析成 IP 地址（www.example.com -> 93.184.216.34），是浏�
 | `DnsHeaderTest`（8） | 12 字节固定、查询/响应工厂、标志位字节布局、TC/RA 组合、NXDOMAIN、偏移解析、非法参数 | 真实 DNS 服务器 |
 | `DnsQuestionTest`（8） | 标签编码（[3]www[7]example[3]com[0]）、往返、QTYPE 描述、紧跟头部解析、压缩指针拒绝、非法域名 | 真实域名解析 |
 | `TransportProtocolTest`（4） | TCP/UDP 属性与首部长度对比、协议号反查 | — |
-| `TcpStateMachineTest`（22） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、**RST 连接重置（拒绝/重置/忽略）**、**半开连接检测（SYN 重传超时/计数重置/非法状态）**、非法转换拒绝 | 真实网络时序 |
+| `TcpStateMachineTest`（27） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、**RST 连接重置（拒绝/重置/忽略）**、**半开连接检测（SYN 重传超时/计数重置/非法状态）**、**keep-alive 假死检测（探测超时/对端响应重置/非法状态）**、非法转换拒绝 | 真实网络时序 |
 | `SubnetCalculatorTest`（15） | 掩码转换、网络/广播地址、主机范围、可用主机数（含 /30、/31、/32 边界）、归属判断、等分子网 | 真实路由表 |
 | `TcpCongestionControlTest`（13） | 慢启动指数增长、拥塞避免线性增长、超时重置、快重传/快恢复、有效窗口 min(cwnd, rwnd)、参数校验 | 真实网络拥塞 |
 | `SocketIntegrationTest`（4） | **真实回环** TCP/UDP 回显、粘包 vs 有边界 | 跨主机网络 |
@@ -425,7 +437,7 @@ DNS 把域名解析成 IP 地址（www.example.com -> 93.184.216.34），是浏�
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 156 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 161 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -441,7 +453,7 @@ DNS 把域名解析成 IP 地址（www.example.com -> 93.184.216.34），是浏�
 2. 用 `PacketParser` 构造一个"IP + UDP + DNS 查询"报文，断言解析出 `destinationPort=53`。
 3. 给 `FramedTcpServer` 增加协议版本号：帧头改为 `[1 字节版本][4 字节长度][内容]`，不匹配的版本直接断开（提示：改 `FrameCodec.encode/decode` 并补测试）。
 4. 用 `tcpdump -i lo port 19001` 抓包观察三次握手，对照 `TcpHeader` 的标志位。
-5. 给 `TcpStateMachine` 增加 keep-alive 假死检测：ESTABLISHED 状态新增 `PROBE_TIMEOUT` 事件，连续 3 次探测无响应 → CLOSED（对照 module-11 的 `IdleStateHandler` 心跳思路），补测试。
+5. 把 keep-alive 拆成两个事件：`IDLE_TIMEOUT`（空闲超时，进入探测阶段）+ `PROBE_TIMEOUT`（探测无响应），更贴近真实实现（先空闲后探测），补测试。
 6. 给 `IcmpHeader` 增加校验和计算：`checksum = 反码和(首部 + 数据)`，构造合法校验和并验证往返一致。
 7. 给 `SubnetCalculator` 增加私有地址判断（`isPrivateIp`）：10.0.0.0/8、172.16.0.0/12、192.168.0.0/16 返回 true，补测试。
 8. 给 `TcpCongestionControl` 增加 `ssthresh` 手动设置方法（模拟丢包前人为调低阈值），验证慢启动提前转入拥塞避免。

@@ -39,7 +39,10 @@ import java.util.Map;
  * - 建连阶段（本类新增 RETRANSMIT_TIMEOUT 事件）：SYN 发出后等待 SYN+ACK，RTO 超时
  *   按**指数退避**重发 SYN（1s、2s、4s…），重试耗尽即放弃：客户端 SYN_SENT -> CLOSED，
  *   服务端 SYN_RECEIVED -> LISTEN（Linux 默认重发 6 次约 127s 后报 Connection timed out）。
- * - 建连之后：keep-alive 探测（IdleStateHandler，见 module-11）与 TCP timestamps 机制。
+ * - 建连之后（本类新增 PROBE_TIMEOUT 事件）：**keep-alive 假死检测**——连接空闲一段时间后
+ *   发探测包，连续 N 次无响应（Linux 默认 9 次）判定对端假死 -> CLOSED；
+ *   收到对端任何报文（数据/ACK）都会重置探测计数（说明对端还活着）。
+ *   网络层没有心跳协议，TCP 探测就是最朴素的"对方还在吗"；应用层心跳见 module-11 的 IdleStateHandler。
  *
  * 学习点：
  * - 状态不是随便跳的：非法转换（如 ESTABLISHED 直接收到 SYN）抛 IllegalStateException。
@@ -74,14 +77,19 @@ public class TcpStateMachine {
         RECV_FIN,        // 收到 FIN
         RECV_RST,        // 收到 RST（连接重置：端口未监听/对端强杀/半开连接）
         RETRANSMIT_TIMEOUT, // 重传超时（RTO）：等待握手应答超时，指数退避重发 SYN/SYN+ACK
+        PROBE_TIMEOUT,   // keep-alive 探测超时：连接空闲后探测对端，连续 N 次无响应判定假死
         TIMEOUT_2MSL     // TIME_WAIT 超时（2 倍报文最大生存时间）
     }
 
     /** 握手重试上限：重发 SYN/SYN+ACK 达到该次数仍无应答则放弃连接 */
     public static final int MAX_RETRANSMITS = 3;
 
+    /** keep-alive 探测上限：连续 N 次探测无响应判定对端假死（Linux 默认 9 次，这里简化为 3） */
+    public static final int MAX_PROBES = 3;
+
     private TcpState state;
     private int retransmitCount; // 当前等待握手应答期间的 RTO 重试次数
+    private int probeFailCount;  // 连续 keep-alive 探测无响应次数
 
     public TcpStateMachine(TcpState initialState) {
         this.state = initialState;
@@ -96,6 +104,11 @@ public class TcpStateMachine {
         return retransmitCount;
     }
 
+    /** 当前连续 keep-alive 探测无响应次数（0 = 对端正常/从未探测）。 */
+    public int probeFailCount() {
+        return probeFailCount;
+    }
+
     /**
      * 应用一个事件并返回新状态；非法转换抛 IllegalStateException。
      * 状态机保证：任何状态只能按 TCP 协议规定的方式跳转。
@@ -103,6 +116,9 @@ public class TcpStateMachine {
     public TcpState apply(TcpEvent event) {
         if (event == TcpEvent.RETRANSMIT_TIMEOUT) {
             return handleRetransmitTimeout();
+        }
+        if (event == TcpEvent.PROBE_TIMEOUT) {
+            return handleProbeTimeout();
         }
         TcpState next = transition(state, event);
         if (next == null) {
@@ -114,6 +130,10 @@ public class TcpStateMachine {
         if (event == TcpEvent.SEND_SYN || event == TcpEvent.RECV_SYN
                 || next == TcpState.ESTABLISHED || next == TcpState.CLOSED) {
             retransmitCount = 0;
+        }
+        // keep-alive 探测计数：进入 ESTABLISHED（握手成功）或收到对端任何报文时清零
+        if (next == TcpState.ESTABLISHED || isPeerResponse(event)) {
+            probeFailCount = 0;
         }
         return next;
     }
@@ -135,6 +155,34 @@ public class TcpStateMachine {
             return this.state;
         }
         return this.state; // 重发 SYN/SYN+ACK，继续等待（状态不变）
+    }
+
+    /**
+     * keep-alive 假死检测：连接已建立（ESTABLISHED）后探测对端。
+     * 未到上限：状态不变（继续发探测），探测失败计数 +1；
+     * 连续 MAX_PROBES 次无响应：判定对端假死（进程崩溃/网络断开），直接 CLOSED 释放资源。
+     * 真实 Linux 默认探测 9 次（每次间隔 75s），本类简化为 3 次；
+     * 期间收到对端任何报文（RECV_*）都会把计数清零（对端还活着）。
+     */
+    private TcpState handleProbeTimeout() {
+        if (state != TcpState.ESTABLISHED) {
+            throw new IllegalStateException(
+                    "keep-alive 探测只在 ESTABLISHED 状态进行（连接已建立才需要保活），当前: " + state);
+        }
+        probeFailCount++;
+        if (probeFailCount >= MAX_PROBES) {
+            probeFailCount = 0;
+            this.state = TcpState.CLOSED;
+            return TcpState.CLOSED;
+        }
+        return TcpState.ESTABLISHED; // 继续发探测，等待对端响应
+    }
+
+    /** 该事件是否表示"对端发来了报文"（说明对端还活着，keep-alive 计数清零）。 */
+    private static boolean isPeerResponse(TcpEvent event) {
+        return event == TcpEvent.RECV_SYN || event == TcpEvent.RECV_SYN_ACK
+                || event == TcpEvent.RECV_ACK || event == TcpEvent.RECV_FIN
+                || event == TcpEvent.RECV_RST;
     }
 
     /** 状态转换表：状态 x 事件 -> 新状态（null 表示非法） */
@@ -241,6 +289,21 @@ public class TcpStateMachine {
         System.out.println("  被动方 " + peer.state() + " --RECV_FIN--> " + peer.apply(TcpEvent.RECV_FIN));
         System.out.println("  被动方 " + peer.state() + " --SEND_FIN--> " + peer.apply(TcpEvent.SEND_FIN));
         System.out.println("  被动方 " + peer.state() + " --RECV_ACK--> " + peer.apply(TcpEvent.RECV_ACK));
+    }
+
+    /** 打印 keep-alive 假死检测演示（供 Main 调用）：连接空闲后连续探测无响应判定假死。 */
+    public static void printKeepAliveDemo() {
+        System.out.println("================ TCP 状态机：keep-alive 假死检测 ================");
+        System.out.println("  场景：连接已建立但对端进程崩溃/网络断开——空闲后发探测包，连续无响应判定假死");
+        TcpStateMachine conn = new TcpStateMachine(TcpState.ESTABLISHED);
+        for (int i = 1; i <= MAX_PROBES; i++) {
+            TcpState result = conn.apply(TcpEvent.PROBE_TIMEOUT);
+            String note = result == TcpState.CLOSED
+                    ? "（连续 " + MAX_PROBES + " 次探测无响应，判定对端假死，释放连接）"
+                    : "（发送探测，对端无响应）";
+            System.out.println("    第 " + i + " 次探测超时: " + result + note);
+        }
+        System.out.println();
     }
 
     /** 打印半开连接检测演示（供 Main 调用）：SYN 重传超时 + 指数退避，重试耗尽放弃。 */

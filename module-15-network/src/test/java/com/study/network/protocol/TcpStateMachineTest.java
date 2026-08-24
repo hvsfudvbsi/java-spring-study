@@ -257,4 +257,73 @@ class TcpStateMachineTest {
         assertThrows(IllegalStateException.class,
                 () -> listen.apply(TcpEvent.RETRANSMIT_TIMEOUT));
     }
+
+    // ---- keep-alive 假死检测 ----
+
+    @Test
+    @DisplayName("keep-alive 探测：前 2 次无响应仍 ESTABLISHED，计数递增")
+    void probeFailuresKeepConnection() {
+        TcpStateMachine conn = new TcpStateMachine(TcpState.ESTABLISHED);
+        assertEquals(0, conn.probeFailCount());
+
+        assertEquals(TcpState.ESTABLISHED, conn.apply(TcpEvent.PROBE_TIMEOUT));
+        assertEquals(1, conn.probeFailCount(), "第 1 次探测无响应");
+        assertEquals(TcpState.ESTABLISHED, conn.apply(TcpEvent.PROBE_TIMEOUT));
+        assertEquals(2, conn.probeFailCount());
+    }
+
+    @Test
+    @DisplayName("连续 3 次探测无响应判定假死：ESTABLISHED -> CLOSED，计数清零")
+    void probeFailuresGiveUp() {
+        TcpStateMachine conn = new TcpStateMachine(TcpState.ESTABLISHED);
+        for (int i = 0; i < TcpStateMachine.MAX_PROBES - 1; i++) {
+            conn.apply(TcpEvent.PROBE_TIMEOUT);
+        }
+        assertEquals(TcpState.CLOSED, conn.apply(TcpEvent.PROBE_TIMEOUT),
+                "连续 3 次无响应，判定对端假死");
+        assertEquals(0, conn.probeFailCount(), "判定假死后计数清零");
+    }
+
+    @Test
+    @DisplayName("收到对端报文重置探测计数：2 次无响应后收到 FIN，计数清零")
+    void peerResponseResetsProbeCount() {
+        TcpStateMachine conn = new TcpStateMachine(TcpState.ESTABLISHED);
+        conn.apply(TcpEvent.PROBE_TIMEOUT);
+        conn.apply(TcpEvent.PROBE_TIMEOUT);
+        assertEquals(2, conn.probeFailCount());
+
+        // 对端发来 FIN（说明还活着），计数清零并进入关闭流程
+        assertEquals(TcpState.CLOSE_WAIT, conn.apply(TcpEvent.RECV_FIN));
+        assertEquals(0, conn.probeFailCount(), "收到对端报文说明对端存活，探测计数清零");
+    }
+
+    @Test
+    @DisplayName("PROBE_TIMEOUT 只在 ESTABLISHED 合法：未建立连接/已关闭都拒绝")
+    void probeIllegalOutsideEstablished() {
+        assertThrows(IllegalStateException.class,
+                () -> new TcpStateMachine(TcpState.SYN_SENT).apply(TcpEvent.PROBE_TIMEOUT));
+        assertThrows(IllegalStateException.class,
+                () -> new TcpStateMachine(TcpState.LISTEN).apply(TcpEvent.PROBE_TIMEOUT));
+        assertThrows(IllegalStateException.class,
+                () -> new TcpStateMachine(TcpState.CLOSED).apply(TcpEvent.PROBE_TIMEOUT));
+        assertThrows(IllegalStateException.class,
+                () -> new TcpStateMachine(TcpState.TIME_WAIT).apply(TcpEvent.PROBE_TIMEOUT));
+    }
+
+    @Test
+    @DisplayName("假死后重新建连：握手成功进入 ESTABLISHED，探测计数从头算")
+    void probeCountResetsOnNewConnection() {
+        TcpStateMachine client = new TcpStateMachine(TcpState.ESTABLISHED);
+        for (int i = 0; i < TcpStateMachine.MAX_PROBES; i++) {
+            client.apply(TcpEvent.PROBE_TIMEOUT); // -> CLOSED
+        }
+        assertEquals(TcpState.CLOSED, client.state());
+
+        client.apply(TcpEvent.SEND_SYN);
+        client.apply(TcpEvent.RECV_SYN_ACK); // 握手成功 -> ESTABLISHED
+        assertEquals(TcpState.ESTABLISHED, client.state());
+        assertEquals(0, client.probeFailCount(), "新连接的探测计数从头算");
+        assertEquals(TcpState.ESTABLISHED, client.apply(TcpEvent.PROBE_TIMEOUT));
+        assertEquals(1, client.probeFailCount());
+    }
 }
