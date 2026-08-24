@@ -22,10 +22,10 @@
 | `gm` | `GmDemo` | 国密专题：SM2+SM3+SM4 **数字信封**全链路 |
 | `cert` | `CertificateDemo` | X.509 证书：CA 自签名根证书、签发服务器证书、信任链/有效期/签名验证 |
 | `cert` | `Pkcs12Demo` | PKCS#12 密钥库：私钥+证书链打包（.p12 字节流）、读回还原、口令保护 |
-| `cms` | `CmsDemo` | CMS（RFC 5652）：数字信封 EnvelopedData（AES-CBC + RSA 密钥封装）、PKCS#7 签名（**attach 内嵌 / detach 分离**）、**PEM 导出 .p7m/.p7s/.p7e + openssl 命令行验证** |
+| `cms` | `CmsDemo` | CMS（RFC 5652）：数字信封 EnvelopedData（AES-CBC + RSA 密钥封装）、PKCS#7 签名（**attach 内嵌 / detach 分离**）、**PEM 导出 .p7m/.p7s/.p7e + openssl 命令行验证**、**国密版（SM2+SM3+SM4 构造 SignedData/EnvelopedData）** |
 | `p10` | `CsrDemo` | PKCS#10（P10）：**CSR 构建**（Subject+公钥+SAN 扩展）、验签、**CA 基于 CSR 签发证书**、**二级 CA 链（根→中间→叶）+ PKIX 完整链验证** |
 
-测试：`src/test/java/com/study/bc/**` 共 **89 个**（每个算法往返、篡改检测、错钥/错数据拒绝、已知向量、证书链/密钥库、SM2 底层/互操作、CBC 块翻转、CMS 信封与签名、PKCS#10 CSR、PEM 导出往返、二级 CA 链）。
+测试：`src/test/java/com/study/bc/**` 共 **94 个**（每个算法往返、篡改检测、错钥/错数据拒绝、已知向量、证书链/密钥库、SM2 底层/互操作、CBC 块翻转、CMS 信封与签名、PKCS#10 CSR、PEM 导出往返、二级 CA 链、CMS 国密版）。
 
 ## 二、运行方式
 
@@ -143,6 +143,20 @@ mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.
   （内容加密用 CBC 而非 GCM：GCM 的 AEAD 参数在 openssl smime -decrypt 下报 cipher parameter error，CBC 是 S/MIME 常规、互操作最稳。）
 - 适用：S/MIME 邮件签名/加密、PDF/代码签名（attach）、软件发布签名（detach .sig）、数据安全交换。
 
+**国密版（SM2 + SM3 + SM4，demo 第 6 节）**：
+
+- **SignedData**：`JcaContentSignerBuilder("SM3withSM2")` 签名，摘要算法 SM3（OID 1.2.156.10197.1.401）、
+  签名算法 SM3withSM2（OID 1.2.156.10197.1.501），attach/detach 与 RSA 版同构，验签逻辑通用。
+- **EnvelopedData（GM/T 0010 信封形态）**：内容加密 SM4-CBC（CEK 随机生成），CEK 用收件人 SM2 公钥加密
+  （key transport，OID 1.2.156.10197.1.301.3.2.1）。BC 1.80 的 CMS 没有 SM2 密钥封装的 JCE 封装
+  （`GMCipherSpi` 不支持 wrap/unwrap、无 `KeyAgreement.SM2`），因此用底层 `SM2Engine` 实现自定义
+  `AsymmetricKeyWrapper`（加密 CEK）与自定义 `KeyTransRecipient`（解 CEK + SM4-CBC 解密内容）。
+- **BC 1.80 的 SM4 OID 缺失**：provider 只注册了裸 `SM4`（=ECB），`1.2.156.10197.1.104` 无别名——
+  直接按 OID 构造 `JceCMSContentEncryptorBuilder` 会走 ECB（参数里的 IV 被忽略、标签写 CBC 实为 ECB）。
+  `registerSm4Aliases()` 补注册 `Cipher.SM4/CBC/PKCS7Padding` 服务 + OID 别名后才走真 CBC。
+- 对照 `GmDemo`：同一套 SM2/SM3/SM4，但 GmDemo 是自定格式手工拼装（双方约定字段顺序）；
+  这里是标准 CMS ASN.1 结构（SignedData/EnvelopedData）——可互操作、可带证书链、天然支持多收件人。
+
 **PEM 导出 + openssl 命令行验证**（demo 第 4/5 节，环境有 openssl 时自动执行）：
 
 - 导出到 `target/cms/`：`signed-attached.p7m`（attach，原文内嵌）、`signed-detached.p7s`（detach）、
@@ -207,7 +221,7 @@ CA:     用 CSR 内嵌公钥验签（证明申请人持有私钥）-> 用 CSR �
 9. 给 `CertificateDemo` 增加 **证书吊销（CRL/OCSP）** 演示：签发吊销列表并让 PKIX 验证拒绝已吊销证书。
 10. 给 `SignatureDemo` 的底层 SM2 签名增加 **原始 (r, s) 输出**（非 DER 包装）：用 `SM2Signer` 的 `PlainDERTBCObject`/手工拆分，对比 JCE 输出格式差异。
 11. 给 `CsrDemo` 增加 **PEM 输出版本**：CSR 与签发的证书导出 PEM（`BEGIN CERTIFICATE REQUEST`），用 `openssl req -verify -in csr.pem` 与 `openssl x509 -text -in cert.pem` 命令行对照验证。
-12. 给 `CmsDemo` 增加 **CMS 国密版**：用 SM2/SM3/SM4 构造 SignedData/EnvelopedData（对照 `GmDemo` 的手工信封，验证与标准 CMS 格式的异同）。
+12. ~~给 `CmsDemo` 增加 CMS 国密版：用 SM2/SM3/SM4 构造 SignedData/EnvelopedData（对照 `GmDemo` 的手工信封）~~ **✅ 已完成**（`gmSignAttached/gmSignDetached/gmVerify*`、`gmEnvelop/gmOpenEnvelope` + 5 测试，demo 第 6 节；含 BC 1.80 SM4 OID 补注册说明）。延伸：给国密 SignedData 加入**带证书链**的签名（`addCertificate` 多张证书 + 验证时走 PKIX），或给国密 EnvelopedData 增加**多收件人**（同一 CEK 用多个 SM2 公钥封装）。
 
 ## 五、算法使用场景（选型指南）
 
@@ -239,6 +253,7 @@ CA:     用 CSR 内嵌公钥验签（证明申请人持有私钥）-> 用 CSR �
 | PKCS#12 | 私钥 + 证书链的打包容器（.p12/.pfx） | TLS 服务器密钥库、浏览器证书导入、代码签名分发 |
 | CMS SignedData（PKCS#7） | 内容签名：attach 内嵌原文 / detach 分离签名 | S/MIME 邮件签名、PDF/代码签名、软件发布 .sig |
 | CMS EnvelopedData | 数字信封：对称加密数据 + 公钥封装对称密钥 | S/MIME 邮件加密、数据安全交换 |
+| CMS 国密版（SM3withSM2 + SM2/SM4） | 国密算法构造标准 SignedData/EnvelopedData | 等保/密评场景的国密签名与加密报文、政务/金融数据交换 |
 | PKCS#10（CSR/P10） | 证书申请：私钥自证持有 + CA 签发证书 | 证书申请自动化、企业 PKI 签发流程 |
 
 ### HMAC vs CMAC 怎么选
@@ -370,7 +385,7 @@ CA:     用 CSR 内嵌公钥验签（证明申请人持有私钥）-> 用 CSR �
 |---|---|
 | 信封冒烟：SM2+SM3+SM4 全链路 | 国密合规方案基线：签名+加密+摘要组合正确 |
 
-### cms — CMS 数字信封与 PKCS#7 签名（9 个）
+### cms — CMS 数字信封与 PKCS#7 签名（14 个）
 
 | 测试 | 守护场景 |
 |---|---|
@@ -378,6 +393,9 @@ CA:     用 CSR 内嵌公钥验签（证明申请人持有私钥）-> 用 CSR �
 | detach 往返（带原文验证）/ 篡改原文失败 / 错公钥失败 / 签名比 attach 短 | 分离签名：原文另行传输、验签必须带原文 |
 | 信封往返（私钥解封一致）/ 错误私钥拒绝 | 数字信封：只有收件人私钥能解封（密钥封装安全） |
 | PEM 往返（BEGIN/END + base64 还原 DER）/ 导出文件重解析并验证（.p7m/.p7s/.p7e + 配套证书密钥） | PEM 是 openssl 可读的互操作格式，导出内容无损 |
+| 国密 SignedData 往返（attach/detach 验签 + 篡改拒绝） | 国密 PKCS#7 签名：SM3withSM2 全链路与 RSA 版同构可用 |
+| 国密 SignedData 算法 OID（SM3=1.2.156.10197.1.401、SM3withSM2=1.2.156.10197.1.501）/ 错公钥失败 | 标准国密 OID：确保产物是合规国密签名而非换名的 RSA |
+| 国密 EnvelopedData 往返 / 错误私钥拒绝 | 国密信封：SM2 封装 CEK + SM4 加密内容，只有对应私钥能开拆 |
 
 ### p10 — PKCS#10 CSR 与签发（7 个）
 
@@ -393,4 +411,4 @@ CA:     用 CSR 内嵌公钥验签（证明申请人持有私钥）-> 用 CSR �
 
 - `mvn test -pl module-18-bouncy-castle`：89 个测试全绿。
 - 全量 `mvn clean verify`：BUILD SUCCESS、0 checkstyle 违规。
-- 实际运行 `Main`：10 个小节全部往返验证通过（哈希向量、AES 四模式、SM2/SM3/SM4 信封、签名五种、PEM 还原、DH/ECDH 协商一致、CA 签发与信任链、PKCS#12 打包还原、CMS 信封与 attach/detach 签名、CSR 构建验签与证书签发、**二级 CA 链完整链验证 true / 无关根 false**）；[9] 节自动执行 openssl 三条命令全部成功（attach/detach 验签 Verification successful、信封解密内容一致）。
+- 实际运行 `Main`：10 个小节全部往返验证通过（哈希向量、AES 四模式、SM2/SM3/SM4 信封、签名五种、PEM 还原、DH/ECDH 协商一致、CA 签发与信任链、PKCS#12 打包还原、CMS 信封与 attach/detach 签名、CSR 构建验签与证书签发、**二级 CA 链完整链验证 true / 无关根 false**、**CMS 国密版：SM3withSM2 attach 452B/detach 364B 验签 true 篡改 false、SM2+SM4 信封 305B 开拆一致 true 错私钥拒绝**）；[9] 节自动执行 openssl 三条命令全部成功（attach/detach 验签 Verification successful、信封解密内容一致）。

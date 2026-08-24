@@ -102,6 +102,61 @@ class CmsDemoTest {
     }
 
     @Test
+    @DisplayName("国密 SignedData：SM3withSM2 签名 attach/detach 验证通过，篡改原文拒绝")
+    void gmSignedDataRoundTrip() {
+        KeyPair signer = CmsDemo.gmKeyPair();
+        X509Certificate cert = CmsDemo.gmSelfSignedCert(signer, new X500Name("CN=GM Signer, O=Study"));
+        byte[] attached = CmsDemo.gmSignAttached(signer, cert, DATA);
+        byte[] detached = CmsDemo.gmSignDetached(signer, cert, DATA);
+        // attach：验签 + 内嵌原文一致
+        assertTrue(CmsDemo.gmVerifyAttached(cert, attached, DATA));
+        // detach：带原文验签通过，篡改原文失败
+        assertTrue(CmsDemo.gmVerifyDetached(signer.getPublic(), DATA, detached));
+        assertFalse(CmsDemo.gmVerifyDetached(signer.getPublic(),
+                (new String(DATA, StandardCharsets.UTF_8) + "!").getBytes(StandardCharsets.UTF_8), detached));
+    }
+
+    @Test
+    @DisplayName("国密 SignedData：摘要用 SM3（OID 1.2.156.10197.1.401）、签名用 SM3withSM2（OID 1.2.156.10197.1.501）")
+    void gmSignedDataUsesSm3WithSm2() throws Exception {
+        KeyPair signer = CmsDemo.gmKeyPair();
+        X509Certificate cert = CmsDemo.gmSelfSignedCert(signer, new X500Name("CN=GM Signer, O=Study"));
+        byte[] signed = CmsDemo.gmSignAttached(signer, cert, DATA);
+        org.bouncycastle.cms.CMSSignedData cms = new org.bouncycastle.cms.CMSSignedData(signed);
+        org.bouncycastle.cms.SignerInformation si =
+                cms.getSignerInfos().getSigners().iterator().next();
+        // SM3 摘要 OID 与 SM3withSM2 签名 OID（国密标准 OID）
+        assertTrue(si.getDigestAlgorithmID().getAlgorithm().getId().equals("1.2.156.10197.1.401"));
+        assertTrue(si.getEncryptionAlgOID().equals("1.2.156.10197.1.501"));
+    }
+
+    @Test
+    @DisplayName("国密 SignedData：换签名者公钥验证失败（防伪冒）")
+    void gmSignedDataWrongKeyFails() {
+        KeyPair signer = CmsDemo.gmKeyPair();
+        X509Certificate cert = CmsDemo.gmSelfSignedCert(signer, new X500Name("CN=GM Signer, O=Study"));
+        byte[] detached = CmsDemo.gmSignDetached(signer, cert, DATA);
+        assertFalse(CmsDemo.gmVerifyDetached(CmsDemo.gmKeyPair().getPublic(), DATA, detached));
+    }
+
+    @Test
+    @DisplayName("国密 EnvelopedData：SM4-CBC 内容加密 + SM2 封装 CEK，收件人开拆还原明文")
+    void gmEnvelopeRoundTrip() {
+        KeyPair recipient = CmsDemo.gmKeyPair();
+        byte[] enveloped = CmsDemo.gmEnvelop(recipient.getPublic(), DATA);
+        assertArrayEquals(DATA, CmsDemo.gmOpenEnvelope(recipient.getPrivate(), enveloped));
+    }
+
+    @Test
+    @DisplayName("国密 EnvelopedData：错误 SM2 私钥开拆被拒绝（SM3 校验失败拿不到 CEK）")
+    void gmEnvelopeWrongKeyRejected() {
+        KeyPair recipient = CmsDemo.gmKeyPair();
+        byte[] enveloped = CmsDemo.gmEnvelop(recipient.getPublic(), DATA);
+        KeyPair wrong = CmsDemo.gmKeyPair();
+        assertThrows(IllegalStateException.class, () -> CmsDemo.gmOpenEnvelope(wrong.getPrivate(), enveloped));
+    }
+
+    @Test
     @DisplayName("PEM 导出往返：BEGIN/END 标记 + base64 解码后还原 DER 字节")
     void toPemRoundTrip() {
         byte[] der = CmsDemo.signAttached(CertificateDemo.generateKeyPair(),

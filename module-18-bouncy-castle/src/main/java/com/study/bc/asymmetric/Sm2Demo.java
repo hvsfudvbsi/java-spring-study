@@ -1,9 +1,18 @@
 package com.study.bc.asymmetric;
 
 import java.nio.charset.StandardCharsets;
+import java.security.KeyFactory;
+import java.security.KeyPair;
+import java.security.PrivateKey;
+import java.security.PublicKey;
 import java.security.SecureRandom;
+import java.security.spec.ECParameterSpec;
+import java.security.spec.ECPublicKeySpec;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.HexFormat;
 
+import org.bouncycastle.asn1.gm.GMNamedCurves;
+import org.bouncycastle.asn1.x9.X9ECParameters;
 import org.bouncycastle.crypto.AsymmetricCipherKeyPair;
 import org.bouncycastle.crypto.CipherParameters;
 import org.bouncycastle.crypto.InvalidCipherTextException;
@@ -17,8 +26,8 @@ import org.bouncycastle.crypto.params.ECPublicKeyParameters;
 import org.bouncycastle.crypto.params.ParametersWithID;
 import org.bouncycastle.crypto.params.ParametersWithRandom;
 import org.bouncycastle.crypto.signers.SM2Signer;
-import org.bouncycastle.asn1.gm.GMNamedCurves;
-import org.bouncycastle.asn1.x9.X9ECParameters;
+import org.bouncycastle.crypto.util.PrivateKeyInfoFactory;
+import org.bouncycastle.jcajce.provider.asymmetric.util.EC5Util;
 
 /**
  * 国密 SM2 非对称算法演示（GB/T 32918，基于椭圆曲线，对标 ECDSA/ECIES）。
@@ -52,6 +61,25 @@ public final class Sm2Demo {
         ECKeyPairGenerator generator = new ECKeyPairGenerator();
         generator.init(new ECKeyGenerationParameters(domain, RANDOM));
         return generator.generateKeyPair();
+    }
+
+    /** 底层密钥对 → JCE 密钥对（同一条 sm2p256v1 曲线，供 JCE 接口签名/验签/信封使用）。 */
+    public static KeyPair toJceKeyPair(AsymmetricCipherKeyPair bcPair) {
+        try {
+            ECPrivateKeyParameters priv = (ECPrivateKeyParameters) bcPair.getPrivate();
+            ECPublicKeyParameters pub = (ECPublicKeyParameters) bcPair.getPublic();
+            // 公钥：底层曲线点 → JCE ECPublicKeySpec
+            ECParameterSpec spec = EC5Util.convertToSpec(pub.getParameters());
+            PublicKey jcePub = KeyFactory.getInstance("EC", "BC")
+                    .generatePublic(new ECPublicKeySpec(EC5Util.convertPoint(pub.getQ()), spec));
+            // 私钥：底层参数 → PKCS#8 编码 → JCE 私钥
+            byte[] pkcs8 = PrivateKeyInfoFactory.createPrivateKeyInfo(priv).getEncoded();
+            PrivateKey jcePriv = KeyFactory.getInstance("EC", "BC")
+                    .generatePrivate(new PKCS8EncodedKeySpec(pkcs8));
+            return new KeyPair(jcePub, jcePriv);
+        } catch (Exception e) {
+            throw new IllegalStateException("SM2 底层密钥转 JCE 失败", e);
+        }
     }
 
     /** SM2 加密（C1C3C2 模式）。 */
