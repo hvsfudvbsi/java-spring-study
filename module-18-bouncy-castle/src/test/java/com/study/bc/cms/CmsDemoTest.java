@@ -1,12 +1,16 @@
 package com.study.bc.cms;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.cert.X509Certificate;
+import java.util.Base64;
 
 import org.bouncycastle.asn1.x500.X500Name;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import com.study.bc.cert.CertificateDemo;
 
@@ -95,5 +99,58 @@ class CmsDemoTest {
         byte[] enveloped = CmsDemo.envelop(cert, DATA);
         KeyPair wrong = CertificateDemo.generateKeyPair();
         assertThrows(IllegalStateException.class, () -> CmsDemo.openEnvelope(wrong.getPrivate(), enveloped));
+    }
+
+    @Test
+    @DisplayName("PEM 导出往返：BEGIN/END 标记 + base64 解码后还原 DER 字节")
+    void toPemRoundTrip() {
+        byte[] der = CmsDemo.signAttached(CertificateDemo.generateKeyPair(),
+                selfSignedCert(CertificateDemo.generateKeyPair(), "PemSigner"), DATA);
+        String pem = CmsDemo.toPem(der, "PKCS7");
+        assertTrue(pem.startsWith("-----BEGIN PKCS7-----\n"));
+        assertTrue(pem.endsWith("\n-----END PKCS7-----\n"));
+        String body = pem.replace("-----BEGIN PKCS7-----\n", "")
+                .replace("\n-----END PKCS7-----\n", "");
+        assertArrayEquals(der, Base64.getMimeDecoder().decode(body));
+    }
+
+    @Test
+    @DisplayName("PEM 文件导出：.p7m/.p7s/.p7e 写出后重新解析并验证（openssl 可读格式）")
+    void exportedPemFilesRoundTrip(@TempDir Path dir) throws Exception {
+        KeyPair signer = CertificateDemo.generateKeyPair();
+        X509Certificate signerCert = selfSignedCert(signer, "PemSigner");
+        KeyPair recipient = CertificateDemo.generateKeyPair();
+        X509Certificate recipientCert = selfSignedCert(recipient, "PemRecipient");
+
+        byte[] attached = CmsDemo.signAttached(signer, signerCert, DATA);
+        byte[] detached = CmsDemo.signDetached(signer, signerCert, DATA);
+        byte[] enveloped = CmsDemo.envelop(recipientCert, DATA);
+
+        CmsDemo.writePemFile(dir, "attached.p7m", "PKCS7", attached);
+        CmsDemo.writePemFile(dir, "detached.p7s", "PKCS7", detached);
+        CmsDemo.writePemFile(dir, "enveloped.p7e", "PKCS7", enveloped);
+        CmsDemo.writePemFile(dir, "recipient.pem", "CERTIFICATE", recipientCert.getEncoded());
+        CmsDemo.writePemFile(dir, "recipient-key.pem", "PRIVATE KEY", recipient.getPrivate().getEncoded());
+
+        // 重新解析 PEM → DER，用我们自己的验证器确认格式有效
+        byte[] attachedDer = readPemDer(dir.resolve("attached.p7m"));
+        assertTrue(CmsDemo.verifyAttached(signerCert, attachedDer, DATA));
+
+        byte[] detachedDer = readPemDer(dir.resolve("detached.p7s"));
+        assertTrue(CmsDemo.verifyDetached(signerCert.getPublicKey(), DATA, detachedDer));
+
+        byte[] envelopedDer = readPemDer(dir.resolve("enveloped.p7e"));
+        assertArrayEquals(DATA, CmsDemo.openEnvelope(recipient.getPrivate(), envelopedDer));
+
+        // openssl smime 命令可用的配套文件也导出成功
+        assertTrue(Files.exists(dir.resolve("recipient.pem")));
+        assertTrue(Files.exists(dir.resolve("recipient-key.pem")));
+    }
+
+    private static byte[] readPemDer(Path file) throws Exception {
+        // 去掉首行 BEGIN 与末行 END，其余行拼接后 base64 解码（对任意标签名稳健）
+        java.util.List<String> lines = Files.readAllLines(file, StandardCharsets.US_ASCII);
+        String body = String.join("", lines.subList(1, lines.size() - 1));
+        return Base64.getMimeDecoder().decode(body);
     }
 }

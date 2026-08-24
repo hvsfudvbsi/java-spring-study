@@ -108,17 +108,36 @@ public final class CmsDemo {
         }
     }
 
-    /** 数字信封（EnvelopedData）：随机对称密钥加密数据，RSA 公钥封装对称密钥。 */
+    /**
+     * 数字信封（EnvelopedData）：随机对称密钥（AES-128-CBC）加密数据，RSA 公钥封装对称密钥。
+     *
+     * <p>注：内容加密用 CBC 而非 GCM——GCM 的 AEAD 参数在 openssl smime -decrypt 命令下
+     * 报 cipher parameter error（OpenSSL 3 的 PKCS7_decrypt 限制），CBC 是 S/MIME 常规做法，
+     * 与 openssl 命令行互操作最稳。
+     */
     public static byte[] envelop(X509Certificate recipientCert, byte[] data) {
         try {
             CMSEnvelopedDataGenerator generator = new CMSEnvelopedDataGenerator();
             generator.addRecipientInfoGenerator(new JceKeyTransRecipientInfoGenerator(recipientCert).setProvider("BC"));
             CMSEnvelopedData enveloped = generator.generate(new CMSProcessableByteArray(data),
-                    new JceCMSContentEncryptorBuilder(CMSAlgorithm.AES128_GCM).setProvider("BC").build());
+                    new JceCMSContentEncryptorBuilder(CMSAlgorithm.AES128_CBC).setProvider("BC").build());
             return enveloped.getEncoded();
         } catch (Exception e) {
             throw new IllegalStateException("CMS 数字信封封装失败", e);
         }
+    }
+
+    /** DER 字节 → PEM 文本（base64 换行 64 字符 + BEGIN/END 标记）。 */
+    public static String toPem(byte[] der, String label) {
+        String body = java.util.Base64.getMimeEncoder(64, new byte[] {'\n'}).encodeToString(der);
+        return "-----BEGIN " + label + "-----\n" + body + "\n-----END " + label + "-----\n";
+    }
+
+    /** 把 DER 写成 PEM 文件（自动建目录）。 */
+    public static void writePemFile(java.nio.file.Path dir, String fileName, String label, byte[] der)
+            throws java.io.IOException {
+        java.nio.file.Files.createDirectories(dir);
+        java.nio.file.Files.writeString(dir.resolve(fileName), toPem(der, label), StandardCharsets.US_ASCII);
     }
 
     /** 开启数字信封：收件人私钥解出对称密钥并解密数据。 */
@@ -203,5 +222,87 @@ public final class CmsDemo {
             System.out.println("   错误私钥解封: 已拒绝（没有对应私钥拿不到对称密钥）");
         }
         System.out.println();
+
+        // 4) PEM 导出 + openssl 命令行验证
+        pemExportDemo(signer, signerCert, recipient, recipientCert, msg, data, attached, detached, enveloped);
+    }
+
+    /**
+     * PEM 导出演示：把 attach/detach 签名与信封导出成 .p7m/.p7s/.p7e（PEM 格式），
+     * 连同签名者证书、收件人证书/私钥写到 target/cms/，打印并自动执行 openssl 命令验证
+     * （环境无 openssl 时仅打印命令供手动执行）。
+     */
+    private static void pemExportDemo(KeyPair signer, X509Certificate signerCert,
+            KeyPair recipient, X509Certificate recipientCert, String msg, byte[] data,
+            byte[] attached, byte[] detached, byte[] enveloped) {
+        java.nio.file.Path dir = java.nio.file.Path.of("target", "cms");
+        try {
+            java.nio.file.Files.createDirectories(dir);
+            java.nio.file.Files.writeString(dir.resolve("original.txt"), msg, StandardCharsets.UTF_8);
+            writePemFile(dir, "signed-attached.p7m", "PKCS7", attached);
+            writePemFile(dir, "signed-detached.p7s", "PKCS7", detached);
+            writePemFile(dir, "enveloped.p7e", "PKCS7", enveloped);
+            writePemFile(dir, "signer.pem", "CERTIFICATE", signerCert.getEncoded());
+            writePemFile(dir, "recipient.pem", "CERTIFICATE", recipientCert.getEncoded());
+            writePemFile(dir, "recipient-key.pem", "PRIVATE KEY", recipient.getPrivate().getEncoded());
+
+            System.out.println("4) PEM 导出（目录 target/cms/）:");
+            try (java.util.stream.Stream<java.nio.file.Path> files = java.nio.file.Files.list(dir)) {
+                files.sorted().forEach(f -> System.out.println("   " + f.getFileName() + "  (" + sizeOf(f) + " 字节)"));
+            }
+            System.out.println();
+
+            // openssl 验证命令（自签名证书 → -noverify 跳过证书链检查，签名本身仍会被验证）
+            String attachCmd = "openssl smime -verify -in target/cms/signed-attached.p7m -inform PEM"
+                    + " -certfile target/cms/signer.pem -noverify -out /dev/null";
+            String detachCmd = "openssl smime -verify -in target/cms/signed-detached.p7s -inform PEM"
+                    + " -content target/cms/original.txt -certfile target/cms/signer.pem -noverify -out /dev/null";
+            String envelopCmd = "openssl smime -decrypt -in target/cms/enveloped.p7e -inform PEM"
+                    + " -recip target/cms/recipient.pem -inkey target/cms/recipient-key.pem"
+                    + " -out target/cms/decrypted.txt";
+
+            System.out.println("5) openssl 命令行验证:");
+            runOpenssl("attach 验签（内嵌原文，无需 -content）", attachCmd);
+            runOpenssl("detach 验签（需 -content 指定原文）", detachCmd);
+            runOpenssl("信封解密（收件人私钥）", envelopCmd);
+
+            // 解密结果与原文比较
+            java.nio.file.Path decrypted = dir.resolve("decrypted.txt");
+            if (java.nio.file.Files.exists(decrypted)) {
+                String opened = java.nio.file.Files.readString(decrypted, StandardCharsets.UTF_8);
+                System.out.println("   openssl 解密内容与原文一致: " + opened.equals(msg));
+            }
+            System.out.println();
+        } catch (Exception e) {
+            throw new IllegalStateException("PEM 导出演示失败", e);
+        }
+    }
+
+    private static long sizeOf(java.nio.file.Path f) {
+        try {
+            return java.nio.file.Files.size(f);
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
+    /** 执行一条 openssl 命令并打印结果；openssl 不可用或失败时打印命令供手动执行。 */
+    private static void runOpenssl(String label, String command) {
+        System.out.println("   " + label + ":");
+        try {
+            Process process = new ProcessBuilder("bash", "-c", command)
+                    .redirectErrorStream(true).start();
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            int code = process.waitFor();
+            if (code == 0) {
+                System.out.println("     成功（exit=0）" + (output.isEmpty() ? "" : " · " + output));
+            } else {
+                System.out.println("     失败（exit=" + code + "）: " + output);
+                System.out.println("     手动执行: " + command);
+            }
+        } catch (Exception e) {
+            System.out.println("     无法执行（openssl 不可用）: " + e.getMessage());
+            System.out.println("     手动执行: " + command);
+        }
     }
 }
