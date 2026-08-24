@@ -145,6 +145,7 @@ mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.
 ## 五、算法使用场景（选型指南）
 
 > 选型三步：① 明确要解决的问题（机密性 / 完整性 / 认证 / 不可否认）；② 看合规约束（是否要求国密 SM2/SM3/SM4）；③ 看运行环境（是否有 AES 硬件加速、密钥长度限制等）。
+> 独立速查文档见 [docs/crypto-cheatsheet.md](../../docs/crypto-cheatsheet.md)（含 HMAC vs CMAC 对照与一分钟决策表）。
 
 | 算法 | 适用场景 | 典型应用 |
 |---|---|---|
