@@ -34,6 +34,7 @@ public class MinimalHttpServer {
 
     /**
      * 启动并阻塞服务：单线程循环 accept，读一个请求、回一个响应。
+     * 单个连接异常（客户端提前断开、请求格式错误）不会影响继续服务。
      * 停止方式：Ctrl+C 或中断线程。
      */
     public void start() throws IOException {
@@ -41,18 +42,26 @@ public class MinimalHttpServer {
             System.out.println("MinimalHttpServer 监听 http://127.0.0.1:" + port + " (Ctrl+C 退出)");
             while (!Thread.currentThread().isInterrupted()) {
                 try (Socket socket = server.accept()) {
-                    HttpRequest request = readRequest(socket.getInputStream());
-                    System.out.println("收到: " + request.method() + " " + request.uri() + " (Host="
-                            + request.header("Host") + ")");
-                    HttpResponse response = route(request);
-                    OutputStream out = socket.getOutputStream();
-                    out.write(response.encode().getBytes(StandardCharsets.UTF_8));
-                    out.flush();
-                    System.out.println("回应: " + response.statusCode() + " "
-                            + response.reasonPhrase() + " (" + response.body().length() + " 字节)");
+                    handle(socket);
+                } catch (IOException | IllegalArgumentException e) {
+                    // 单个坏连接（如探测连接提前关闭）不影响服务器继续监听
+                    System.out.println("连接异常（继续服务）: " + e.getMessage());
                 }
             }
         }
+    }
+
+    /** 处理一个连接：读请求 -> 路由 -> 回响应。 */
+    private void handle(Socket socket) throws IOException {
+        HttpRequest request = readRequest(socket.getInputStream());
+        System.out.println("收到: " + request.method() + " " + request.uri() + " (Host="
+                + request.header("Host") + ")");
+        HttpResponse response = route(request);
+        OutputStream out = socket.getOutputStream();
+        out.write(response.encode().getBytes(StandardCharsets.UTF_8));
+        out.flush();
+        System.out.println("回应: " + response.statusCode() + " "
+                + response.reasonPhrase() + " (" + response.body().length() + " 字节)");
     }
 
     /** 简单路由：/ 与 /hello 返回 HTML，其余 404。 */

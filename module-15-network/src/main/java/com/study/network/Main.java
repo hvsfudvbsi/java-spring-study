@@ -96,8 +96,12 @@ public class Main {
         System.out.println("TCP SYN+SACK 首部 " + sackHeader.headerLength() + " 字节: " + sackHeader);
         List<TcpOption> parsedSack = TcpHeader.parse(sackHeader.encode()).options();
         TcpOption sackOption = parsedSack.get(1); // 第一个是 SACK-Permitted
-        System.out.println("解析回: 选项=" + parsedSack + ", SACK 块=" + sackOption.sackBlocks()
-                + "（丢包区间 [2000, 3000) 由块之间的空隙推断，只重传这段）");
+        List<SackBlock> received = sackOption.sackBlocks();
+        System.out.println("解析回: 选项=" + parsedSack + ", SACK 块=" + received);
+        // 丢包区间推断：发送范围 − 已确认块 = 需要重传的段（SackBlock.gaps）
+        List<SackBlock> gaps = SackBlock.gaps(1000, 4000, received);
+        System.out.println("丢包推断: 发送 [1000, 4000) − SACK 块 → 需要重传 " + gaps
+                + "（只重传丢失段，不用全部重发）");
         System.out.println();
 
         // 3. UDP 首部：DNS 查询 53 端口（含 UDP 校验和，IPv4 下可选）

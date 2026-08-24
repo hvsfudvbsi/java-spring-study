@@ -131,6 +131,7 @@ class MinimalHttpClientTest {
         });
         server.setDaemon(true);
         server.start();
+        awaitPort(port); // 等服务端完成 bind，避免线程启动与端口就绪的竞态
         try {
             // 200 路径
             HttpResponse ok = MinimalHttpClient.get("127.0.0.1", port, "/hello");
@@ -188,5 +189,18 @@ class MinimalHttpClientTest {
         try (ServerSocket socket = new ServerSocket(0)) {
             return socket.getLocalPort();
         }
+    }
+
+    /** 轮询等待服务端端口可连接（最多 2 秒），避免线程启动与端口 bind 的竞态。 */
+    private static void awaitPort(int port) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 2_000;
+        while (System.currentTimeMillis() < deadline) {
+            try (Socket probe = new Socket("127.0.0.1", port)) {
+                return; // 连接成功：端口已就绪
+            } catch (IOException e) {
+                Thread.sleep(20); // 还没就绪，稍等重试
+            }
+        }
+        throw new IllegalStateException("等待端口 " + port + " 就绪超时");
     }
 }
