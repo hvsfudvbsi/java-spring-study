@@ -4,6 +4,8 @@ import com.study.bc.BcSupport;
 import com.study.bc.asymmetric.EccDemo;
 import com.study.bc.asymmetric.RsaDemo;
 import com.study.bc.asymmetric.Sm2Demo;
+import com.study.bc.cert.CertificateDemo;
+import com.study.bc.cert.Pkcs12Demo;
 import com.study.bc.gm.GmDemo;
 import com.study.bc.hash.HashDemo;
 import com.study.bc.key.KeyAgreementDemo;
@@ -75,6 +77,10 @@ public final class Main {
 
         System.out.println("[7] 国密专题");
         GmDemo.demo();
+
+        System.out.println("[8] X.509 证书与 PKCS#12 密钥库");
+        CertificateDemo.demo();
+        Pkcs12Demo.demo();
 
         System.out.println("==========================================");
         System.out.println(" 演示结束：全部算法往返验证通过（见各节输出）");

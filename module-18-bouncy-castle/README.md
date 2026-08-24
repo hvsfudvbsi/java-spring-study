@@ -20,8 +20,10 @@
 | `key` | `KeyManagementDemo` | 密钥生成、DER / Base64 / PEM 编码与解析还原 |
 | `key` | `KeyAgreementDemo` | DH-2048 / ECDH(P-256) 密钥协商 |
 | `gm` | `GmDemo` | 国密专题：SM2+SM3+SM4 **数字信封**全链路 |
+| `cert` | `CertificateDemo` | X.509 证书：CA 自签名根证书、签发服务器证书、信任链/有效期/签名验证 |
+| `cert` | `Pkcs12Demo` | PKCS#12 密钥库：私钥+证书链打包（.p12 字节流）、读回还原、口令保护 |
 
-测试：`src/test/java/com/study/bc/**` 共 **55 个**（每个算法往返、篡改检测、错钥/错数据拒绝、已知向量）。
+测试：`src/test/java/com/study/bc/**` 共 **63 个**（每个算法往返、篡改检测、错钥/错数据拒绝、已知向量、证书链/密钥库）。
 
 ## 二、运行方式
 
@@ -99,6 +101,18 @@ mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.
 ```
 对称加密快（大块数据）、非对称加密安全（短密钥分发），各取所长。
 
+### 11. X.509 证书与 PKCS#12
+
+- **签发**：`JcaX509v3CertificateBuilder`（bcpkix）构建证书——Subject/Issuer DN、序列号、有效期、
+  BasicConstraints（CA 标志）、SAN 域名扩展，`JcaContentSignerBuilder("SHA256withRSA")` 签名，
+  `JcaX509CertificateConverter` 转 JCA 证书。
+- **验证三件事**：① 签名校验（用**签发者**公钥验签——服务器证书的签名者是 CA，不是它自己）；
+  ② 有效期 `checkValidity()`；③ 信任链 `CertPathValidator` + TrustAnchor（PKIX 算法）。
+- **PKCS#12**：行业标准容器（.p12/.pfx），TLS 服务器与浏览器导入都用它；`KeyStore.getInstance("PKCS12")`
+  + `setKeyEntry(alias, 私钥, 口令, 证书链)` 打包，读回时按别名取私钥与证书链，整体由口令保护。
+- 注意：签发服务器证书时 Issuer DN 应直接复用 CA 证书的原始 Subject（X500Name 对象），
+  避免「DN 字符串 → 再解析」往返改变编码导致 PKIX 链匹配失败。
+
 ## 四、动手练习
 
 1. 给 `AesDemo` 增加 **CBC 密文块翻转攻击演示**：翻转前一块密文某字节，观察下一块明文对应字节被翻转（填充仍可能通过）。
@@ -107,9 +121,12 @@ mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.
 4. 用 `KeyManagementDemo` 生成密钥对并导出 PEM，用 **openssl 命令行**解析对比（`openssl pkey -in key.pem -text`）。
 5. 给 `Sm2Demo` 增加 **C1C2C3 模式**（与 C1C3C2 对比）与**不同用户 ID 验签失败**测试。
 6. 用 `GmDemo` 思路实现 **SM2 + SM4 的「先签名后加密」** 完整报文协议（可参考 SM2 标准报文格式）。
+7. 给 `CertificateDemo` 增加 **二级 CA 链**：根 CA 签发中间 CA，中间 CA 再签发服务器证书（验证时需构建完整证书链而非单 TrustAnchor）。
+8. 给 `Pkcs12Demo` 增加**写文件版本**：把 `toPkcs12` 输出写入 `.p12` 文件，再用 `keytool -list` 或 openssl 命令行读取验证。
+9. 给 `CertificateDemo` 增加 **证书吊销（CRL/OCSP）** 演示：签发吊销列表并让 PKIX 验证拒绝已吊销证书。
 
 ## 五、验证
 
-- `mvn test -pl module-18-bouncy-castle`：55 个测试全绿。
+- `mvn test -pl module-18-bouncy-castle`：63 个测试全绿。
 - 全量 `mvn clean verify`：BUILD SUCCESS、0 checkstyle 违规。
-- 实际运行 `Main`：7 个小节全部往返验证通过（哈希向量、AES 四模式、SM2/SM3/SM4 信封、签名五种、PEM 还原、DH/ECDH 协商一致）。
+- 实际运行 `Main`：8 个小节全部往返验证通过（哈希向量、AES 四模式、SM2/SM3/SM4 信封、签名五种、PEM 还原、DH/ECDH 协商一致、CA 签发与信任链、PKCS#12 打包还原）。
