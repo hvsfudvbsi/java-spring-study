@@ -49,6 +49,7 @@
 | `socket/framed/FrameCodec` | **长度头帧协议**：`[4 字节长度][UTF-8 内容]`，编码 + 累积解码（粘包/拆包/半帧） |
 | `socket/framed/FramedTcpServer` + `FramedTcpClient` | **多线程帧协议服务器**：每连接一线程，按长度头拆帧回声 |
 | `socket/MinimalHttpClient` + `MinimalHttpServer` | **纯 JDK 最小 HTTP 客户端/服务器**：Socket 发请求收响应，按 Content-Length 或 **chunked 分块**切分响应（HTTP 版的粘包解决），HttpRequest/HttpResponse 真实落地 |
+| `socket/HttpConnection` | **Keep-Alive 连接复用**：同一 Socket 连发多个请求，靠 Content-Length/chunked 切分响应边界，最后一条才关；Connection: close / HTTP/1.0 无长度 / EOF 时自动判定不可复用 |
 | `tls/TlsHandshakeDemo` | **纯 JDK TLS 握手详解**：SSLSocket 真实握手，打印 ClientHello→Finished 报文与协商结果 | javax.net.debug 跟踪、SSLContext/KeyStore/自签名证书、SSLSession |
 
 ### 第四部分：IP 地址与子网划分（CIDR）
@@ -77,6 +78,9 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.M
 mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.socket.MinimalHttpServer
 # 终端 2 —— 用客户端请求（也可直接访问公网：MinimalHttpClient www.example.com 80 /）
 mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.socket.MinimalHttpClient -Dexec.args="127.0.0.1 19080 /hello"
+
+# Keep-Alive 复用演示：一条连接连发 4 个请求（/、/hello、/chunked、/nope），服务端同一连接循环处理
+mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.socket.HttpConnection -Dexec.args="127.0.0.1 19080"
 
 # 单独运行 TCP 回显（两个终端）
 mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.socket.TcpEchoServer
@@ -478,7 +482,24 @@ HTTP 是浏览器与服务器之间的文本协议，报文由「起始行 + 头
 - 服务端 `readRequest()`：与客户端镜像——逐字节读请求头到空行，按 Content-Length 精确读请求体，再 `HttpResponse.text()` 回响应（自动算 Content-Type/Content-Length）。
 - 这正是**粘包问题的 HTTP 版落地**：请求/响应都是「头部 + 空行 + 主体」，主体长度靠 Content-Length 切分，两条报文不会混在一起（对照 socket 章节的长度头帧协议）。
 - **请求走私防护**：同时声明 Content-Length 与 Transfer-Encoding 是攻击特征（RFC 7230 3.3.3），客户端直接拒绝。
-- 留作练习：重定向跟随、Cookie 会话、Keep-Alive 连接复用、HTTPS。
+
+**Keep-Alive 连接复用（`socket/HttpConnection`）——粘包问题的终极考验：**
+
+HTTP/1.1 默认长连接：一次三次握手承载多个请求，省去重复握手成本。复用的前提是**每条响应边界清晰**——这就是为什么 Content-Length/chunked 如此重要：读不完一条响应，下一条的字节就会被当成本条主体（粘包）。
+
+```text
+客户端 HttpConnection:             服务端 MinimalHttpServer:
+request(/)    ────────────────────>  读请求 -> 回响应（Content-Length）
+request(/hello) ──────────────────>  同一连接继续读下一个请求（Keep-Alive 循环）
+request(/chunked) ────────────────>  回 chunked 响应（块边界清晰，仍可复用）
+request(/nope) ───────────────────>  回 404
+close()       <────────────────────  读到 EOF，结束这条连接
+```
+
+- 客户端 `HttpConnection.isReusable()` 判定连接是否还能复用：**Connection: close**、**无长度读到 EOF**（对端已关）、**HTTP/1.0 默认关闭**（除非显式 keep-alive）——三种情况读完响应后连接自动关闭。
+- 服务端 `MinimalHttpServer` 的 `handle` 改为 Keep-Alive 循环：一条连接上连续读请求、回响应，直到请求头带 `Connection: close` 才结束（此时响应也带 `Connection: close` 头告知客户端）。
+- `MinimalHttpClient` 是单请求便捷入口（请求头带 `Connection: close`，读完即关）；要复用连接就用 `HttpConnection`。
+- 留作练习：重定向跟随、Cookie 会话、HTTPS、连接池/并发复用。
 
 ## 🧪 测试
 
@@ -504,11 +525,12 @@ HTTP 是浏览器与服务器之间的文本协议，报文由「起始行 + 头
 | `TcpCongestionControlTest`（13） | 慢启动指数增长、拥塞避免线性增长、超时重置、快重传/快恢复、有效窗口 min(cwnd, rwnd)、参数校验 | 真实网络拥塞 |
 | `SocketIntegrationTest`（4） | **真实回环** TCP/UDP 回显、粘包 vs 有边界 | 跨主机网络 |
 | `MinimalHttpClientTest`（9） | **真实回环** GET 往返（按 Content-Length 收 body）、**拆包分 5 片收齐**、无 Content-Length 读到 EOF、**chunked（单块/多块十六进制大小/分片写拆包/trailer 跳过/CL+TE 走私拒绝）**、**MinimalHttpServer 配套 200/404/405/chunked** | 跨主机网络、公网站点 |
+| `HttpConnectionTest`（5） | **真实回环 Keep-Alive 复用**：连发 3 请求切分正确、Connection: close 后不可复用、HTTP/1.0 无长度 EOF 不可复用、chunked 后仍可继续发、MinimalHttpServer 配套 4 请求同一连接 | 跨主机网络、公网站点 |
 | `FrameCodecTest`（9） | 长度头编码、粘包多帧、拆包等待、长度头分批、非法超长拒绝 | 真实网络 |
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 204 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 209 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -537,7 +559,7 @@ HTTP 是浏览器与服务器之间的文本协议，报文由「起始行 + 头
 15. 给 `DnsHeader` 增加 `withId(int)` 拷贝方法，并演示「改事务 ID 后原响应校验失败」（模拟 DNS 伪造防护）。
 16. 给 `HttpResponse` 增加同样的多值头支持（`Map<String, List<String>>`，如多个 `Set-Cookie`），补测试（对照 `HttpRequest` 的实现）。
 17. 给 `MinimalHttpClient` 增加 **gzip 解压**：收到 `Content-Encoding: gzip` 响应时，用 `java.util.zip.GZIPInputStream` 解压主体再返回（提示：解压要在读完所有字节之后，注意 `Content-Length` 是压缩后的长度）。
-18. 给 `MinimalHttpClient` 增加 **Keep-Alive 连接复用**：同一 Socket 连续发多个请求，靠 Content-Length 切分每条响应，最后一条才发 `Connection: close`（对照 `FrameCodec` 的累积解码思路）。
+18. 给 `HttpConnection` 增加**请求管线化（Pipelining）**：不等响应就连续写出多个请求（一次系统调用发多个），再依次读回（提示：注意响应顺序与请求顺序一致；并发下要注意连接池）。
 19. 用 `HttpResponse` 构造一个 304 Not Modified 响应（含 `ETag` 头），并演示 `If-None-Match` 请求头命中时返回 304 的判据。
 20. 把 SACK 接入 `TcpCongestionControl`：收到重复 ACK 时不再整窗口快重传，而是用 `SackBlock.gaps` 的返回区间**只标记丢失段重传**，补测试（对照当前全窗口快重传的行为差异）。
 

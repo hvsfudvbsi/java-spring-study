@@ -16,14 +16,17 @@ import java.util.Map;
 /**
  * 纯 JDK 最小 HTTP 服务器——只用 {@link ServerSocket} 收请求、回响应，配合 HttpRequest/HttpResponse 解析。
  *
- * 与 {@link MinimalHttpClient} 互为镜像，共同演示「HTTP 的粘包解决」：
+ * 与 {@link MinimalHttpClient} / {@link HttpConnection} 互为镜像，共同演示「HTTP 的粘包解决」：
  * 服务端逐字节读请求头直到 CRLFCRLF，从头部解析 Content-Length 再精确读请求体
  * （{@link #readRequest}），响应则用 {@link HttpResponse#encode()} 序列化——
  * 响应体长度由 Content-Length 声明（`/chunked` 路由用 Transfer-Encoding: chunked 分块），
  * 客户端据此切分，两条响应不会混在一起。
  *
+ * **Keep-Alive**：一条连接上循环处理多个请求（{@link #handle}），直到请求头带
+ * `Connection: close` 或客户端断开——与 {@link HttpConnection} 的复用互相印证。
+ *
  * 限制（留作练习）：只支持 GET、单线程串行 accept（一次只处理一个连接）、
- * 无 Keep-Alive 复用、无静态文件目录遍历防护。真实服务器用 Netty（module-11）。
+ * 无静态文件目录遍历防护。真实服务器用 Netty（module-11）。
  */
 public class MinimalHttpServer {
 
@@ -54,17 +57,30 @@ public class MinimalHttpServer {
         }
     }
 
-    /** 处理一个连接：读请求 -> 路由 -> 回响应。 */
+    /**
+     * 处理一条连接：Keep-Alive 循环——读请求 -> 路由 -> 回响应，
+     * 直到请求头带 Connection: close 或客户端断开（读请求时抛 IOException）。
+     */
     private void handle(Socket socket) throws IOException {
-        HttpRequest request = readRequest(socket.getInputStream());
-        System.out.println("收到: " + request.method() + " " + request.uri() + " (Host="
-                + request.header("Host") + ")");
-        HttpResponse response = route(request);
         OutputStream out = socket.getOutputStream();
-        out.write(response.encode().getBytes(StandardCharsets.UTF_8));
-        out.flush();
-        System.out.println("回应: " + response.statusCode() + " "
-                + response.reasonPhrase() + " (" + response.body().length() + " 字节)");
+        while (true) {
+            HttpRequest request = readRequest(socket.getInputStream());
+            System.out.println("收到: " + request.method() + " " + request.uri() + " (Host="
+                    + request.header("Host") + ")");
+            boolean clientWantsClose = "close".equalsIgnoreCase(request.header("Connection"));
+            HttpResponse response = route(request);
+            if (clientWantsClose) {
+                response = response.withHeader("Connection", "close"); // 明确告知：这是最后一条
+            }
+            out.write(response.encode().getBytes(StandardCharsets.UTF_8));
+            out.flush();
+            System.out.println("回应: " + response.statusCode() + " "
+                    + response.reasonPhrase() + " (" + response.body().length() + " 字节)");
+            if (clientWantsClose) {
+                return; // 对端要求关闭：结束这条连接
+            }
+            // 否则继续读下一个请求（同一条连接复用）
+        }
     }
 
     /** 简单路由：/、/hello 返回 HTML，/chunked 用分块传输编码，其余 404。 */

@@ -159,6 +159,13 @@ public class HttpResponse {
         return new HttpResponse("HTTP/1.1", statusCode, reasonPhrase, headers, body);
     }
 
+    /** 拷贝响应并增加/覆盖一个头部（不可变风格，如 Keep-Alive 场景给响应加 Connection 头）。 */
+    public HttpResponse withHeader(String name, String value) {
+        Map<String, String> newHeaders = new LinkedHashMap<>(headers);
+        newHeaders.put(name, value);
+        return new HttpResponse(version, statusCode, reasonPhrase, newHeaders, body);
+    }
+
     /** 大小写不敏感读取单个响应头，不存在返回 null（响应头通常单值，多值场景见 HttpRequest）。 */
     public String header(String name) {
         for (Map.Entry<String, String> entry : headers.entrySet()) {
