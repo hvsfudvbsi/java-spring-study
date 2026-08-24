@@ -1,5 +1,6 @@
 package com.study.network.packet;
 
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -145,6 +146,27 @@ public class HttpResponse {
             case 503 -> "Service Unavailable";
             default -> "Status " + statusCode;
         };
+    }
+
+    /**
+     * 便捷工厂：构造带 Content-Type 与 Content-Length 的文本响应（供最小 HTTP 服务器使用）。
+     * 注意：Content-Length 必须是响应体的**字节数**，中文等非 ASCII 字符按 UTF-8 计算。
+     */
+    public static HttpResponse text(int statusCode, String reasonPhrase, String body) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Content-Type", "text/html; charset=utf-8");
+        headers.put("Content-Length", String.valueOf(body.getBytes(StandardCharsets.UTF_8).length));
+        return new HttpResponse("HTTP/1.1", statusCode, reasonPhrase, headers, body);
+    }
+
+    /** 大小写不敏感读取单个响应头，不存在返回 null（响应头通常单值，多值场景见 HttpRequest）。 */
+    public String header(String name) {
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase(name)) {
+                return entry.getValue();
+            }
+        }
+        return null;
     }
 
     /** 是否成功响应（2xx）。 */
