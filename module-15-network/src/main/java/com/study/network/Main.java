@@ -34,7 +34,8 @@ import com.study.network.socket.TcpStickyPacketDemo;
  *   2. TCP 首部 20 字节编码与解析（含数据偏移/标志位）
  *   2.1 TCP 校验和（伪首部 + 首部 + 数据）
  *   2.2 TCP 选项（SYN 携带 MSS=1460，数据偏移自动变大）
- *   2.3 SACK 块（乱序确认区间，丢包只重传丢失段）
+ *   2.3 SACK 块（乱序确认区间，丢包只重传丢失段）+ 丢包区间推断 gaps
+ *   2.4 ECN 三次握手（SYN+ECE+CWR）+ 拥塞响应（ECE→cwnd 减半→回 CWR）
  *   3. UDP 首部 8 字节编码与解析（含 UDP 校验和）
  *   4. IPv4 首部编码与解析（版本/IHL/地址）
  *   4.1 IP 分片字段（标识/标志 MF/片偏移）
@@ -113,6 +114,16 @@ public class Main {
         TcpHeader ackEcn = new TcpHeader(12345, 80, 1001, 0,
                 5, true, false, false, false, false, false, false, false, 65535, 0, 0);
         System.out.println("ECN 握手③ ACK（双方确认支持 ECN，中间路由器可打 CE 标记）: " + ackEcn);
+        // 2.4b ECN 拥塞响应：中间路由器打 CE 标记 → 收方回 ECE → 发方 cwnd 减半并回 CWR
+        TcpCongestionControl ecnTcp = TcpCongestionControl.standard(64);
+        for (int i = 0; i < 4; i++) {
+            ecnTcp.onRttAcknowledged(); // cwnd=16，进入拥塞避免
+        }
+        int ecnBefore = ecnTcp.cwnd();
+        boolean sendCwr = ecnTcp.onEcnCe();
+        System.out.println("ECN 拥塞响应: 收到 ECE（cwnd=" + ecnBefore + "）→ cwnd 减半=" + ecnTcp.cwnd()
+                + ", ssthresh=" + ecnTcp.ssthresh() + ", 回 CWR=" + sendCwr
+                + "（拥塞信号提前到达，不必等丢包才反应）");
         System.out.println();
 
         // 3. UDP 首部：DNS 查询 53 端口（含 UDP 校验和，IPv4 下可选）

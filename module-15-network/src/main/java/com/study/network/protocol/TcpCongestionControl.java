@@ -73,6 +73,7 @@ public class TcpCongestionControl {
     private final int rwnd;        // 接收窗口（单位：MSS，模拟中固定不变）
     private Phase phase;
     private int duplicateAckCount; // 连续重复 ACK 计数
+    private boolean ecnResponded;  // 本拥塞事件是否已对 ECE 响应过（ECN 防抖：同一事件只减半一次）
 
     /**
      * @param initialCwnd    初始拥塞窗口（经典实现为 1 MSS）
@@ -112,6 +113,7 @@ public class TcpCongestionControl {
             cwnd += 1;
         }
         // FAST_RECOVERY 期间按 RTT 推进不增长（靠重复 ACK 临时补偿 + 新 ACK 收敛）
+        ecnResponded = false; // 一个 RTT 过去，拥塞事件结束，允许下次 ECE 再响应
     }
 
     /**
@@ -152,6 +154,29 @@ public class TcpCongestionControl {
             phase = Phase.CONGESTION_AVOIDANCE;
         }
         duplicateAckCount = 0;
+        ecnResponded = false; // 新 ACK 确认了 CWR，拥塞事件结束，允许下次 ECE 再响应
+    }
+
+    /**
+     * 收到 ECE 标志（ECN-Echo，RFC 3168）：中间路由器打 CE 标记后，接收方回 ECE 告知发送方
+     * 「网络已拥塞」——拥塞信号**提前到达**，不必等丢包/重复 ACK 才反应：
+     * cwnd 与 ssthresh 减半（cwnd 不归零，区别于超时），转入拥塞避免，并回 CWR 确认已响应。
+     *
+     * <p>防抖：同一拥塞事件（收到 ECE 到收到新 ACK 之间）只减半一次，重复 ECE 不再响应；
+     * {@link #onNewAck()} 或 {@link #onRttAcknowledged()} 后允许再次响应。
+     *
+     * @return 是否需要回 CWR 标志（true=本次响应触发减半，应回 CWR；false=已响应过）
+     */
+    public boolean onEcnCe() {
+        if (ecnResponded) {
+            return false; // 同一拥塞事件已响应过，不再重复减半
+        }
+        ssthresh = Math.max(cwnd / 2, MIN_SSTHRESH);
+        cwnd = Math.max(cwnd / 2, 1); // 减半但不归零
+        phase = Phase.CONGESTION_AVOIDANCE;
+        duplicateAckCount = 0;
+        ecnResponded = true;
+        return true;
     }
 
     /**

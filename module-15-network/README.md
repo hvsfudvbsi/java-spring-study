@@ -62,7 +62,7 @@
 
 | 类 | 内容 |
 |----|------|
-| `protocol/TcpCongestionControl` | **TCP Reno 拥塞控制模拟**：慢启动（指数增长）、拥塞避免（线性增长）、超时（全盘重来）、快重传/快恢复（3 个重复 ACK）、有效窗口 min(cwnd, rwnd) |
+| `protocol/TcpCongestionControl` | **TCP Reno 拥塞控制模拟**：慢启动（指数增长）、拥塞避免（线性增长）、超时（全盘重来）、快重传/快恢复（3 个重复 ACK）、有效窗口 min(cwnd, rwnd)、**ECN 响应（ECE→cwnd 减半→回 CWR）**、**SACK 精细化重传（只重传块空隙）** |
 
 ## 🚀 运行方式
 
@@ -334,6 +334,8 @@ CIDR 用「网络地址 + 前缀长度」（如 `192.168.1.0/24`）描述一个�
 ② 拥塞避免 Congestion       cwnd 每 RTT +1（16→17→18）：接近瓶颈时线性试探
 ③ 超时（RTO 到期）         ssthresh=cwnd/2，cwnd=1：最严重拥塞信号，全盘重来
 ④ 快重传+快恢复（3 个重复 ACK） ssthresh=cwnd/2，cwnd=ssthresh+3：网络还能通，不归零
+⑤ ECN 响应（收到 ECE，RFC 3168） cwnd/ssthresh 减半、进拥塞避免、回 CWR：拥塞信号提前到达，不必等丢包
+⑥ SACK 精细化重传（重复 ACK + SACK 块） 用 SackBlock.gaps 只重传丢失段，不重发已收到的
 ```
 
 **为什么要有 ③ 和 ④ 两种丢包处理（面试常问）：**
@@ -341,7 +343,11 @@ CIDR 用「网络地址 + 前缀长度」（如 `192.168.1.0/24`）描述一个�
 - **3 个重复 ACK**：说明后续数据还能正常到达（只是某个段丢了/乱序），网络仍通 → 只把 cwnd 砍半，进入快恢复，收到新 ACK 后收敛回 ssthresh 进入拥塞避免，避免吞吐量断崖式下跌。
 - 快恢复期间每多收一个重复 ACK，cwnd 临时 +1（补偿已发到网络中的数据）。
 
-典型 cwnd 曲线：慢启动指数上升 → 拥塞避免线性上升 → 超时掉回 1 → 再次慢启动 → 3 个重复 ACK 只砍半不归零。`TcpCongestionControl` 用「状态 + 事件」完整模拟这条曲线（`onRttAcknowledged`/`onTimeout`/`onDuplicateAck`/`onNewAck`），配合 `TcpStateMachine`（连接状态）可理解 TCP 从建连、传输到断连的全过程。
+**ECN（显式拥塞通知，RFC 3168）与 SACK（RFC 2018）——对经典算法的增强：**
+- **ECN**：中间路由器队列快满时直接给数据包打 **CE 标记**（而不是丢弃），接收方回 **ECE** 标志，发送方 `onEcnCe()` 把 cwnd/ssthresh 减半并回 **CWR** 确认——拥塞信号**提前到达，不必靠丢包感知**（丢包会损失吞吐，ECN 是「零丢包」的拥塞信号）。同一拥塞事件只减半一次（防抖），收到新 ACK/RTT 推进后允许再次响应。
+- **SACK**：接收方用 SACK 选项回报「哪些乱序区间已收到」，发送方 `onDuplicateAckWithSack()` 用 `SackBlock.gaps` 精确算出需重传的段（块之间的空隙），只补丢失的、不重发已收到的——高带宽高延迟链路上收益巨大。
+
+典型 cwnd 曲线：慢启动指数上升 → 拥塞避免线性上升 → 超时掉回 1 → 再次慢启动 → 3 个重复 ACK 只砍半不归零。`TcpCongestionControl` 用「状态 + 事件」完整模拟这条曲线（`onRttAcknowledged`/`onTimeout`/`onDuplicateAck`/`onNewAck`/`onEcnCe`/`onDuplicateAckWithSack`），配合 `TcpStateMachine`（连接状态）可理解 TCP 从建连、传输到断连的全过程。
 
 ### 9. 校验和：IP 反码和 与 TCP/UDP 伪首部（对应 `packet/Checksums`）
 
@@ -526,7 +532,7 @@ close()       <────────────────────  读
 | `TransportProtocolTest`（4） | TCP/UDP 属性与首部长度对比、协议号反查 | — |
 | `TcpStateMachineTest`（31） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、**RST 连接重置（拒绝/重置/忽略）**、**半开连接检测（SYN 重传超时/计数重置/非法状态）**、**keep-alive 假死检测（IDLE_TIMEOUT 进入探测/探测超时/对端响应退出探测/非法状态）**、非法转换拒绝 | 真实网络时序 |
 | `SubnetCalculatorTest`（18） | 掩码转换、网络/广播地址、主机范围、可用主机数（含 /30、/31、/32 边界）、归属判断、等分子网、**私网判断（RFC 1918 三段/边界之外）**、**10.0.0.0/8 等分 256 个 /16** | 真实路由表 |
-| `TcpCongestionControlTest`（19） | 慢启动指数增长、拥塞避免线性增长、超时重置、快重传/快恢复、有效窗口 min(cwnd, rwnd)、参数校验、**SACK 精细化重传（只重传块空隙/全覆盖无重传）**、**ssthresh 手动设置**、**超时后阈值翻倍加速恢复** | 真实网络拥塞 |
+| `TcpCongestionControlTest`（23） | 慢启动指数增长、拥塞避免线性增长、超时重置、快重传/快恢复、有效窗口 min(cwnd, rwnd)、参数校验、**SACK 精细化重传（只重传块空隙/全覆盖无重传）**、**ssthresh 手动设置**、**超时后阈值翻倍加速恢复**、**ECN 响应（ECE 减半/不归零/同事件防抖/新 ACK 与 RTT 重置防抖）** | 真实网络拥塞 |
 | `SocketIntegrationTest`（4） | **真实回环** TCP/UDP 回显、粘包 vs 有边界 | 跨主机网络 |
 | `MinimalHttpClientTest`（9） | **真实回环** GET 往返（按 Content-Length 收 body）、**拆包分 5 片收齐**、无 Content-Length 读到 EOF、**chunked（单块/多块十六进制大小/分片写拆包/trailer 跳过/CL+TE 走私拒绝）**、**MinimalHttpServer 配套 200/404/405/chunked** | 跨主机网络、公网站点 |
 | `HttpConnectionTest`（10） | **真实回环 Keep-Alive 复用**：连发 3 请求切分正确、Connection: close 后不可复用、HTTP/1.0 无长度 EOF 不可复用、chunked 后仍可继续发、MinimalHttpServer 配套 4 请求同一连接、**gzip 解压**、**管线化 3 请求一次写出**、**重定向跟随/超限/跨主机拒绝** | 跨主机网络、公网站点 |
@@ -534,7 +540,7 @@ close()       <────────────────────  读
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 242 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 246 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -546,7 +552,11 @@ close()       <────────────────────  读
 
 ## ✍️ 动手练习
 
-1. 给 `TcpCongestionControl` 增加 **ECN 响应**：收到带 ECE 标志的数据包（中间路由器打 CE 标记）时，把 cwnd 减半（而不是等丢包才反应），并回 CWR 标志——ECN 的价值是「拥塞信号提前到达，不必靠丢包感知」，补测试。
+> ✅ 已完成（收尾记录）：
+> - **ECN 接入拥塞控制**（原 #1）：`TcpCongestionControl.onEcnCe()`——收到 ECE 时 cwnd/ssthresh 减半、进拥塞避免、回 CWR（同事件防抖，新 ACK/RTT 重置），测试见 `TcpCongestionControlTest`、演示见 Main 2.4b。
+> - **SACK 接入拥塞控制**（原 #19）：`TcpCongestionControl.onDuplicateAckWithSack()`——3 个重复 ACK + SACK 块时用 `SackBlock.gaps` 只重传丢失段，测试见 `TcpCongestionControlTest`、演示见 Main 2.3。
+
+1. 给 `TcpCongestionControl` 增加 **ECN 与 CWR 状态机联动**：把 `onEcnCe()` 的返回值接入 `TcpStateMachine`（收到 ECE 事件 → 减半并回 CWR 报文），形成「路由器 CE → 收方 ECE → 发方 CWR」完整闭环，补测试。
 2. 用 `PacketParser` 构造一个"IP + TCP + DNS 查询"报文（DNS 走 TCP 53 的场景：响应超过 512 字节时），断言解析出 `destinationPort=53` 与 TCP 标志位。
 3. 给 `FrameCodec` 增加**应用层协议类型字节**：帧头 `[版本][类型][长度][内容]`，类型区分文本/二进制/心跳（对照 module-11 群聊的心跳帧），补测试。
 4. 用 `tcpdump -i lo port 19001` 抓包观察三次握手，对照 `TcpHeader` 的标志位。

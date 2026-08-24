@@ -8,7 +8,9 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * TCP 拥塞控制测试：验证慢启动、拥塞避免、超时、快重传/快恢复与有效窗口。
@@ -176,6 +178,58 @@ class TcpCongestionControlTest {
         }
         assertEquals(8, tcp.cwnd());
         assertEquals(4, tcp.effectiveWindow()); // min(8, 4) = 4
+    }
+
+    // ---- ECN 响应（练习 #1：拥塞信号提前到达，不必等丢包） ----
+
+    @Test
+    @DisplayName("ECN：收到 ECE 时 cwnd/ssthresh 减半、进拥塞避免、返回应回 CWR")
+    void ecnCeHalvesWindow() {
+        TcpCongestionControl tcp = TcpCongestionControl.standard(64);
+        for (int i = 0; i < 4; i++) {
+            tcp.onRttAcknowledged(); // cwnd=16, CA
+        }
+        tcp.onRttAcknowledged();     // cwnd=17
+        boolean needCwr = tcp.onEcnCe();
+        assertTrue(needCwr, "首次收到 ECE 应回 CWR");
+        assertEquals(8, tcp.ssthresh());   // 17/2
+        assertEquals(8, tcp.cwnd());       // 17/2（不归零，区别于超时）
+        assertEquals(Phase.CONGESTION_AVOIDANCE, tcp.phase());
+    }
+
+    @Test
+    @DisplayName("ECN：cwnd 很小时减半不下探到 0（下限 1）")
+    void ecnCeCwndFloor() {
+        TcpCongestionControl tcp = new TcpCongestionControl(1, 16, 64);
+        tcp.onEcnCe();
+        assertEquals(1, tcp.cwnd(), "cwnd 下限 1，不归零");
+        assertEquals(2, tcp.ssthresh(), "ssthresh 下限 2");
+    }
+
+    @Test
+    @DisplayName("ECN 防抖：同一拥塞事件重复 ECE 只减半一次，新 ACK 后允许再次响应")
+    void ecnCeDebounceUntilNewAck() {
+        TcpCongestionControl tcp = TcpCongestionControl.standard(64);
+        for (int i = 0; i < 4; i++) {
+            tcp.onRttAcknowledged(); // cwnd=16
+        }
+        assertTrue(tcp.onEcnCe());   // 第一次：减半 16 -> 8，回 CWR
+        assertEquals(8, tcp.cwnd());
+        assertFalse(tcp.onEcnCe(), "同一事件重复 ECE 不应再响应");
+        assertEquals(8, tcp.cwnd(), "cwnd 不再变化");
+        tcp.onNewAck();              // CWR 被确认，拥塞事件结束
+        assertTrue(tcp.onEcnCe(), "新 ACK 后允许再次响应");
+        assertEquals(4, tcp.cwnd(), "再次减半 8 -> 4");
+    }
+
+    @Test
+    @DisplayName("ECN 后 RTT 推进：一个 RTT 全确认也重置防抖标志")
+    void ecnCeDebounceResetOnRtt() {
+        TcpCongestionControl tcp = TcpCongestionControl.standard(64);
+        tcp.onEcnCe();               // cwnd=1 -> 1（下限），ssthresh=8
+        assertFalse(tcp.onEcnCe(), "同事件不再响应");
+        tcp.onRttAcknowledged();
+        assertTrue(tcp.onEcnCe(), "RTT 推进后允许再次响应");
     }
 
     // ---- SACK 精细化重传 ----
