@@ -34,6 +34,13 @@ import java.util.Map;
  * - LISTEN 状态下收到 RST 通常直接丢弃（继续监听），不影响已有连接。
  * - TIME_WAIT 是终态前的固定等待（2MSL），不受 RST 影响、不能提前结束。
  *
+ * 半开连接检测（Half-open）——对端消失（崩溃/断电/网络断开）但本端没收到 FIN/RST，
+ * 连接资源（TCB、端口）被白白占用。检测分两个阶段（面试常问）：
+ * - 建连阶段（本类新增 RETRANSMIT_TIMEOUT 事件）：SYN 发出后等待 SYN+ACK，RTO 超时
+ *   按**指数退避**重发 SYN（1s、2s、4s…），重试耗尽即放弃：客户端 SYN_SENT -> CLOSED，
+ *   服务端 SYN_RECEIVED -> LISTEN（Linux 默认重发 6 次约 127s 后报 Connection timed out）。
+ * - 建连之后：keep-alive 探测（IdleStateHandler，见 module-11）与 TCP timestamps 机制。
+ *
  * 学习点：
  * - 状态不是随便跳的：非法转换（如 ESTABLISHED 直接收到 SYN）抛 IllegalStateException。
  * - TIME_WAIT 是主动关闭方专有：等待 2 倍报文最大生存时间（2MSL），确保最后一个 ACK 到达。
@@ -66,10 +73,15 @@ public class TcpStateMachine {
         SEND_FIN,        // 发送 FIN（主动关闭）
         RECV_FIN,        // 收到 FIN
         RECV_RST,        // 收到 RST（连接重置：端口未监听/对端强杀/半开连接）
+        RETRANSMIT_TIMEOUT, // 重传超时（RTO）：等待握手应答超时，指数退避重发 SYN/SYN+ACK
         TIMEOUT_2MSL     // TIME_WAIT 超时（2 倍报文最大生存时间）
     }
 
+    /** 握手重试上限：重发 SYN/SYN+ACK 达到该次数仍无应答则放弃连接 */
+    public static final int MAX_RETRANSMITS = 3;
+
     private TcpState state;
+    private int retransmitCount; // 当前等待握手应答期间的 RTO 重试次数
 
     public TcpStateMachine(TcpState initialState) {
         this.state = initialState;
@@ -79,18 +91,50 @@ public class TcpStateMachine {
         return state;
     }
 
+    /** 当前握手重试次数（0 = 未发生过 RTO）。 */
+    public int retransmitCount() {
+        return retransmitCount;
+    }
+
     /**
      * 应用一个事件并返回新状态；非法转换抛 IllegalStateException。
      * 状态机保证：任何状态只能按 TCP 协议规定的方式跳转。
      */
     public TcpState apply(TcpEvent event) {
+        if (event == TcpEvent.RETRANSMIT_TIMEOUT) {
+            return handleRetransmitTimeout();
+        }
         TcpState next = transition(state, event);
         if (next == null) {
             throw new IllegalStateException(
                     "非法转换: " + state + " + " + event + "（TCP 协议不允许）");
         }
         this.state = next;
+        // 重新发起握手 / 握手成功 / 连接结束：重试计数清零，下一次 RTO 从头算
+        if (event == TcpEvent.SEND_SYN || event == TcpEvent.RECV_SYN
+                || next == TcpState.ESTABLISHED || next == TcpState.CLOSED) {
+            retransmitCount = 0;
+        }
         return next;
+    }
+
+    /**
+     * 半开连接检测：等待握手应答（SYN_SENT / SYN_RECEIVED）时 RTO 超时。
+     * 未到重试上限：状态不变（指数退避重发 SYN/SYN+ACK），重试计数 +1；
+     * 达到上限：放弃连接——客户端 SYN_SENT -> CLOSED，服务端 SYN_RECEIVED -> LISTEN（继续监听）。
+     */
+    private TcpState handleRetransmitTimeout() {
+        if (state != TcpState.SYN_SENT && state != TcpState.SYN_RECEIVED) {
+            throw new IllegalStateException(
+                    "RTO 重传只发生在等待握手应答的状态（SYN_SENT/SYN_RECEIVED），当前: " + state);
+        }
+        retransmitCount++;
+        if (retransmitCount >= MAX_RETRANSMITS) {
+            retransmitCount = 0;
+            this.state = state == TcpState.SYN_SENT ? TcpState.CLOSED : TcpState.LISTEN;
+            return this.state;
+        }
+        return this.state; // 重发 SYN/SYN+ACK，继续等待（状态不变）
     }
 
     /** 状态转换表：状态 x 事件 -> 新状态（null 表示非法） */
@@ -197,6 +241,23 @@ public class TcpStateMachine {
         System.out.println("  被动方 " + peer.state() + " --RECV_FIN--> " + peer.apply(TcpEvent.RECV_FIN));
         System.out.println("  被动方 " + peer.state() + " --SEND_FIN--> " + peer.apply(TcpEvent.SEND_FIN));
         System.out.println("  被动方 " + peer.state() + " --RECV_ACK--> " + peer.apply(TcpEvent.RECV_ACK));
+    }
+
+    /** 打印半开连接检测演示（供 Main 调用）：SYN 重传超时 + 指数退避，重试耗尽放弃。 */
+    public static void printHalfOpenDemo() {
+        System.out.println("================ TCP 状态机：半开连接检测（SYN 重传超时） ================");
+        System.out.println("  场景：客户端发 SYN 后对端无响应（服务器宕机/网络断开）——RTO 指数退避重发");
+        TcpStateMachine client = new TcpStateMachine(TcpState.SYN_SENT);
+        int rtoSeconds = 1;
+        for (int i = 1; i <= MAX_RETRANSMITS; i++) {
+            TcpState result = client.apply(TcpEvent.RETRANSMIT_TIMEOUT);
+            String note = result == TcpState.CLOSED
+                    ? "（重试耗尽，放弃连接，报 Connection timed out）"
+                    : "（重发 SYN，继续等待）";
+            System.out.println("    RTO " + rtoSeconds + "s 超时: " + result + note);
+            rtoSeconds *= 2; // 指数退避：1s -> 2s -> 4s
+        }
+        System.out.println();
     }
 
     /** 打印 RST 重置演示（供 Main 调用）：Connection refused 与 Connection reset by peer。 */

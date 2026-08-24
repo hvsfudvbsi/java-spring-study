@@ -33,7 +33,7 @@ import com.study.network.socket.TcpStickyPacketDemo;
  *   6. 完整报文分层解析（以太网 -> IP -> TCP/UDP/ICMP）
  *   6.1 ARP 报文解析（EtherType=0x0806，不经过 IP 层）
  *   6.2 DNS 查询报文（12 字节头部 + QNAME 标签编码的查询记录）
- *   7. TCP 三次握手/四次挥手状态机 + RST 连接重置演示
+ *   7. TCP 状态机演示：三次握手/四次挥手 + RST 连接重置 + 半开连接检测（SYN 重传超时）
  *   8. TCP 粘包 vs UDP 有边界演示
  *   9. IP 子网划分/CIDR 计算演示
  *   10. TCP 拥塞控制（慢启动/拥塞避免/超时/快重传）演示
@@ -149,9 +149,10 @@ public class Main {
                 + "（记录占 " + parsedDns.bytesConsumed() + " 字节）");
         System.out.println();
 
-        // 7. TCP 三次握手 / 四次挥手状态机 + RST 连接重置
+        // 7. TCP 状态机：三次握手/四次挥手 + RST 连接重置 + 半开连接检测（SYN 重传超时）
         TcpStateMachine.printHandshakeDemo();
         TcpStateMachine.printRstDemo();
+        TcpStateMachine.printHalfOpenDemo();
         System.out.println();
 
         // 8. TCP 粘包 vs UDP 有边界

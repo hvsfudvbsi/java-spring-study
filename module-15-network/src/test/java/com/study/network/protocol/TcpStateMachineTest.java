@@ -185,4 +185,76 @@ class TcpStateMachineTest {
         // 只能等 2MSL 超时后关闭
         assertEquals(TcpState.CLOSED, closer.apply(TcpEvent.TIMEOUT_2MSL));
     }
+
+    // ---- 半开连接检测（SYN 重传超时） ----
+
+    @Test
+    @DisplayName("客户端半开连接：SYN 重传 2 次仍等待，第 3 次 RTO 放弃 -> CLOSED（Connection timed out）")
+    void clientRetransmitThenGiveUp() {
+        TcpStateMachine client = new TcpStateMachine(TcpState.SYN_SENT);
+
+        assertEquals(TcpState.SYN_SENT, client.apply(TcpEvent.RETRANSMIT_TIMEOUT));
+        assertEquals(1, client.retransmitCount(), "第 1 次 RTO：重发 SYN，继续等待");
+        assertEquals(TcpState.SYN_SENT, client.apply(TcpEvent.RETRANSMIT_TIMEOUT));
+        assertEquals(2, client.retransmitCount());
+
+        // 重试耗尽：放弃连接
+        assertEquals(TcpState.CLOSED, client.apply(TcpEvent.RETRANSMIT_TIMEOUT));
+        assertEquals(0, client.retransmitCount(), "放弃后计数清零");
+    }
+
+    @Test
+    @DisplayName("服务端半开连接：SYN_RECEIVED 重传 SYN+ACK 耗尽后回到 LISTEN 继续监听")
+    void serverRetransmitThenGiveUp() {
+        TcpStateMachine server = new TcpStateMachine(TcpState.SYN_RECEIVED);
+        for (int i = 0; i < TcpStateMachine.MAX_RETRANSMITS - 1; i++) {
+            assertEquals(TcpState.SYN_RECEIVED, server.apply(TcpEvent.RETRANSMIT_TIMEOUT));
+        }
+        assertEquals(TcpState.LISTEN, server.apply(TcpEvent.RETRANSMIT_TIMEOUT),
+                "服务端重试耗尽后回到 LISTEN，不占用 TCB");
+        assertEquals(0, server.retransmitCount());
+    }
+
+    @Test
+    @DisplayName("握手成功重置重试计数：SYN_SENT 收到 SYN+ACK 后 RTO 不再适用")
+    void retransmitCountResetsOnHandshakeSuccess() {
+        TcpStateMachine client = new TcpStateMachine(TcpState.SYN_SENT);
+        client.apply(TcpEvent.RETRANSMIT_TIMEOUT);
+        assertEquals(1, client.retransmitCount());
+
+        assertEquals(TcpState.ESTABLISHED, client.apply(TcpEvent.RECV_SYN_ACK));
+        assertEquals(0, client.retransmitCount(), "握手成功计数清零");
+        // ESTABLISHED 不是等待握手应答状态，RTO 事件非法
+        assertThrows(IllegalStateException.class, () -> client.apply(TcpEvent.RETRANSMIT_TIMEOUT));
+    }
+
+    @Test
+    @DisplayName("放弃后重新建连：重试计数从头算，仍可正常握手")
+    void retransmitResetsAfterGiveUp() {
+        TcpStateMachine client = new TcpStateMachine(TcpState.SYN_SENT);
+        for (int i = 0; i < TcpStateMachine.MAX_RETRANSMITS; i++) {
+            client.apply(TcpEvent.RETRANSMIT_TIMEOUT); // -> CLOSED，计数清零
+        }
+        assertEquals(TcpState.CLOSED, client.state());
+
+        client.apply(TcpEvent.SEND_SYN); // 重新建连
+        assertEquals(TcpState.SYN_SENT, client.state());
+        assertEquals(0, client.retransmitCount());
+        assertEquals(TcpState.SYN_SENT, client.apply(TcpEvent.RETRANSMIT_TIMEOUT));
+        assertEquals(1, client.retransmitCount(), "新连接的重试从头计数");
+    }
+
+    @Test
+    @DisplayName("RTO 只在等待握手应答的状态合法：ESTABLISHED/CLOSED/LISTEN 都拒绝")
+    void retransmitIllegalOutsideWaitingStates() {
+        TcpStateMachine established = new TcpStateMachine(TcpState.ESTABLISHED);
+        assertThrows(IllegalStateException.class,
+                () -> established.apply(TcpEvent.RETRANSMIT_TIMEOUT));
+        TcpStateMachine closed = new TcpStateMachine(TcpState.CLOSED);
+        assertThrows(IllegalStateException.class,
+                () -> closed.apply(TcpEvent.RETRANSMIT_TIMEOUT));
+        TcpStateMachine listen = new TcpStateMachine(TcpState.LISTEN);
+        assertThrows(IllegalStateException.class,
+                () -> listen.apply(TcpEvent.RETRANSMIT_TIMEOUT));
+    }
 }

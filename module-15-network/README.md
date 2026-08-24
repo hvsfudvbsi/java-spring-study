@@ -219,7 +219,20 @@ ARP 报文（以太网+IPv4 固定 28 字节）字段：
 | 服务端 LISTEN 收到 RST | 丢弃，继续监听 | 不影响已有连接 |
 | TIME_WAIT 收到 RST | 忽略，2MSL 固定等待 | 不能提前结束 |
 
-本模块的 `TcpHeader` 可构造 SYN/FIN/ACK 报文观察标志位，`TcpStateMachine` 可模拟完整状态流转（含 RST 重置）；真实抓包用 `tcpdump`/Wireshark（或 `curl -v`）。
+**半开连接检测（Half-open，面试常问）：** 对端崩溃/断电/网络断开时本端收不到 FIN/RST，
+连接资源（TCB、端口）被白白占用。`TcpStateMachine` 新增 `RETRANSMIT_TIMEOUT` 事件模拟建连阶段的检测：
+
+```text
+客户端发 SYN -> 等 SYN+ACK 超时 -> RTO 指数退避重发（1s -> 2s -> 4s...）
+  -> 重试耗尽（默认 3 次）：客户端 SYN_SENT -> CLOSED（报 Connection timed out）
+  ->                         服务端 SYN_RECEIVED -> LISTEN（放弃该连接，继续监听）
+```
+
+- 只有等待握手应答的状态（SYN_SENT/SYN_RECEIVED）允许 RTO，其余状态收到该事件抛非法转换。
+- 每次重新发起握手 / 握手成功 / 放弃连接后，重试计数清零（下一次从头算）。
+- 建连**之后**的假死检测靠 keep-alive 探测（见 module-11 的 `IdleStateHandler` 心跳）与 TCP timestamps。
+
+本模块的 `TcpHeader` 可构造 SYN/FIN/ACK 报文观察标志位，`TcpStateMachine` 可模拟完整状态流转（含 RST 重置与半开连接检测）；真实抓包用 `tcpdump`/Wireshark（或 `curl -v`）。
 
 ### 7. IP 地址与子网划分（对应 `ip/SubnetCalculator`）
 
@@ -383,7 +396,7 @@ DNS 把域名解析成 IP 地址（www.example.com -> 93.184.216.34），是浏�
 | `DnsHeaderTest`（8） | 12 字节固定、查询/响应工厂、标志位字节布局、TC/RA 组合、NXDOMAIN、偏移解析、非法参数 | 真实 DNS 服务器 |
 | `DnsQuestionTest`（8） | 标签编码（[3]www[7]example[3]com[0]）、往返、QTYPE 描述、紧跟头部解析、压缩指针拒绝、非法域名 | 真实域名解析 |
 | `TransportProtocolTest`（4） | TCP/UDP 属性与首部长度对比、协议号反查 | — |
-| `TcpStateMachineTest`（17） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、**RST 连接重置（拒绝/重置/忽略）**、非法转换拒绝 | 真实网络时序 |
+| `TcpStateMachineTest`（22） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、**RST 连接重置（拒绝/重置/忽略）**、**半开连接检测（SYN 重传超时/计数重置/非法状态）**、非法转换拒绝 | 真实网络时序 |
 | `SubnetCalculatorTest`（15） | 掩码转换、网络/广播地址、主机范围、可用主机数（含 /30、/31、/32 边界）、归属判断、等分子网 | 真实路由表 |
 | `TcpCongestionControlTest`（13） | 慢启动指数增长、拥塞避免线性增长、超时重置、快重传/快恢复、有效窗口 min(cwnd, rwnd)、参数校验 | 真实网络拥塞 |
 | `SocketIntegrationTest`（4） | **真实回环** TCP/UDP 回显、粘包 vs 有边界 | 跨主机网络 |
@@ -391,7 +404,7 @@ DNS 把域名解析成 IP 地址（www.example.com -> 93.184.216.34），是浏�
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 134 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 139 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -407,7 +420,7 @@ DNS 把域名解析成 IP 地址（www.example.com -> 93.184.216.34），是浏�
 2. 用 `PacketParser` 构造一个"IP + UDP + DNS 查询"报文，断言解析出 `destinationPort=53`。
 3. 给 `FramedTcpServer` 增加协议版本号：帧头改为 `[1 字节版本][4 字节长度][内容]`，不匹配的版本直接断开（提示：改 `FrameCodec.encode/decode` 并补测试）。
 4. 用 `tcpdump -i lo port 19001` 抓包观察三次握手，对照 `TcpHeader` 的标志位。
-5. 给 `TcpStateMachine` 增加「半开连接检测」：SYN_SENT 状态重发 SYN 3 次仍无响应 → 直接 CLOSED（新增 `RETRANSMIT_TIMEOUT` 事件），补测试。
+5. 给 `TcpStateMachine` 增加 keep-alive 假死检测：ESTABLISHED 状态新增 `PROBE_TIMEOUT` 事件，连续 3 次探测无响应 → CLOSED（对照 module-11 的 `IdleStateHandler` 心跳思路），补测试。
 6. 给 `IcmpHeader` 增加校验和计算：`checksum = 反码和(首部 + 数据)`，构造合法校验和并验证往返一致。
 7. 给 `SubnetCalculator` 增加私有地址判断（`isPrivateIp`）：10.0.0.0/8、172.16.0.0/12、192.168.0.0/16 返回 true，补测试。
 8. 给 `TcpCongestionControl` 增加 `ssthresh` 手动设置方法（模拟丢包前人为调低阈值），验证慢启动提前转入拥塞避免。
