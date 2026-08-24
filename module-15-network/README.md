@@ -10,9 +10,10 @@
 | 类 | 覆盖内容 | 首部长度 |
 |----|---------|---------|
 | `packet/EthernetFrame` | 数据链路层帧头：目的/源 MAC（各 6 字节）、EtherType（2 字节） | 14 字节固定 |
-| `packet/IpHeader` | 网络层 IPv4 首部：版本(4 bit) + IHL(4 bit) 挤同一字节、总长度、TTL、协议号、源/目的 IP | 20 字节最小（IHL×4） |
-| `packet/TcpHeader` | 传输层 TCP 首部：源/目的端口、序号、确认号、**数据偏移(4 bit)+标志位(9 bit)**、窗口 | 20 字节最小 |
-| `packet/UdpHeader` | 传输层 UDP 首部：源/目的端口、长度、校验和 | 8 字节固定 |
+| `packet/IpHeader` | 网络层 IPv4 首部：版本(4 bit) + IHL(4 bit) 挤同一字节、总长度、**分片三件套（标识/标志/片偏移）**、TTL、协议号、源/目的 IP | 20 字节最小（IHL×4） |
+| `packet/TcpHeader` | 传输层 TCP 首部：源/目的端口、序号、确认号、**数据偏移(4 bit)+标志位(9 bit)**、窗口、**伪首部校验和** | 20 字节最小 |
+| `packet/UdpHeader` | 传输层 UDP 首部：源/目的端口、长度、**伪首部校验和（IPv4 可选）** | 8 字节固定 |
+| `packet/Checksums` | **校验和工具（RFC 1071 反码和）**：IP 首部校验和、TCP/UDP 伪首部校验和、整体验证（反码和为 0xFFFF） | — |
 | `packet/IcmpHeader` | 网络层 ICMP 首部：**类型/代码/校验和**/标识/序号（ping 的报文） | 8 字节固定 |
 | `packet/PacketParser` | 完整报文分层解析：以太网 → IP → TCP/UDP/ICMP → 负载（模拟 Wireshark 逐层剥离） | — |
 
@@ -227,7 +228,51 @@ CIDR 用「网络地址 + 前缀长度」（如 `192.168.1.0/24`）描述一个�
 
 典型 cwnd 曲线：慢启动指数上升 → 拥塞避免线性上升 → 超时掉回 1 → 再次慢启动 → 3 个重复 ACK 只砍半不归零。`TcpCongestionControl` 用「状态 + 事件」完整模拟这条曲线（`onRttAcknowledged`/`onTimeout`/`onDuplicateAck`/`onNewAck`），配合 `TcpStateMachine`（连接状态）可理解 TCP 从建连、传输到断连的全过程。
 
-### 8. TLS 握手：应用层加密通道的建立（对应 `tls/TlsHandshakeDemo`）
+### 8. 校验和：IP 反码和 与 TCP/UDP 伪首部（对应 `packet/Checksums`）
+
+校验和算法（RFC 1071）三步：**16 bit 大端字累加 → 进位折叠回低 16 位 → 取反码**。
+校验时把「数据 + 算出的校验和」整体再算一遍，结果应为 `0xFFFF`（全 1），否则报文已损坏。
+
+**IP 首部校验和**：只覆盖 IP 首部本身（不含上层数据），计算时校验和字段先置 0。经典验证向量（RFC 1071 示例）：`45 00 00 73 ... c0 a8 00 c7` → `0xB861`。
+
+**TCP/UDP 伪首部校验和**：覆盖「伪首部 + 报文段」，伪首部是 12 字节虚拟头，**不随报文传输**：
+
+```text
+| 源 IP (32) | 目的 IP (32) | 0 (8) | 协议号 (8) | TCP/UDP 长度 (16) |
+```
+
+**为什么要有伪首部（面试常问）**：传输层只看到端口号、感知不到 IP 地址。
+若不覆盖 IP 地址，报文被路由到错误主机时接收方无法发现；协议号防止跨协议误判（TCP 报文被当 UDP 解析）。
+伪首部把 IP 地址「借」进校验范围，代价是 TCP/UDP 校验和必须知道源/目的 IP 才能计算。
+
+| 细节 | 说明 |
+|------|------|
+| TCP 校验和 | **必须**计算，不可省略 |
+| UDP 校验和 | IPv4 下**可选**（置 0 表示未计算），IPv6 下强制 |
+| 奇数长度数据 | 计算时末尾补 0x00，不参与传输 |
+| 计算结果为 0 | 反码和特例：0 以 0xFFFF 传输（避免与「未计算」混淆） |
+
+本模块 `TcpHeader.computeChecksum` / `UdpHeader.computeChecksum` 实现完整计算，`Checksums.verifyTransport` 实现整体验证。
+
+### 9. IP 分片与 MTU（对应 `packet/IpHeader` 分片字段）
+
+IP 报文超过链路 MTU（如以太网 1500 字节）时，路由器把报文切成多个**分片**分别转发，接收方重组。分片由首部三件套描述：
+
+| 字段 | 位数 | 作用 |
+|------|------|------|
+| 标识 identification | 16 bit | 同一数据报的所有分片共享，接收方据此分组重组 |
+| 标志 flags | 3 bit | bit0 保留(恒 0)；**DF**（Don't Fragment）= 0x2 禁止分片；**MF**（More Fragments）= 0x1 后面还有分片，最后一片 MF=0 |
+| 片偏移 fragmentOffset | 13 bit | 本分片在原报文中的偏移，**单位 8 字节**（13 bit × 8 = 64KB，正好覆盖 IP 最大报文） |
+
+**关键理解：**
+- 片偏移单位是 8 字节不是 1 字节：13 bit 表示不了 65535 个字节偏移，×8 后正好够用（如偏移 1480 字节 → 字段值 185）。
+- 每个分片都有完整的 IP 首部，只是总长度、标志、片偏移不同；分片只发生在 IP 层，TCP/UDP 感知不到。
+- 现代 TCP 一般用 **Path MTU Discovery**（探测路径最小 MTU，DF=1 禁止中间分片）：
+  分片重组开销大、易受攻击（分片炸弹），把大报文问题留在传输层解决，IP 层尽量不分片。
+
+`IpHeader` 现支持分片字段的编码/解析（`FLAG_DF`/`FLAG_MF`、`withFragmentation`），`Main` 演示了 MF=1、片偏移 185 的分片报文。
+
+### 10. TLS 握手：应用层加密通道的建立（对应 `tls/TlsHandshakeDemo`）
 
 HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是客户端与服务端**协商参数 + 互相证明身份**的过程，运行 `TlsHandshakeDemo`（纯 JDK `SSLSocket`）会开启 JSSE 握手跟踪（`javax.net.debug=ssl:handshake`），打印 TLS 1.3 每一步的真实报文：
 
@@ -254,7 +299,8 @@ HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是�
 |--------|----------|--------------|
 | `TcpHeaderTest`（6） | 编码/解析往返、SYN/ACK/FIN 标志位、数据偏移决定首部长度、标志位字节位置 | 真实网络行为 |
 | `UdpHeaderTest`（3） | 8 字节固定、大端字节序、负载长度计算 | 丢包/乱序 |
-| `IpHeaderTest`（5） | 版本+IHL 位字段、点分十进制互转、IP 每段 0~255 校验 | 路由/分片 |
+| `IpHeaderTest`（9） | 版本+IHL 位字段、点分十进制互转、IP 每段 0~255 校验、分片三件套编解码与非法参数 | 真实路由/分片 |
+| `ChecksumTest`（11） | RFC 1071 IP 官方向量、反码和折叠、奇数长度补 0、TCP/UDP 伪首部校验和向量与整体验证、伪首部/数据参与校验 | 真实抓包校验 |
 | `EthernetFrameTest`（4） | 14 字节帧头、MAC 地址转换、EtherType | 真实网卡 |
 | `IcmpHeaderTest`（6） | ping 请求/回复往返、字段位置、类型名称、偏移解析 | 真实 ping 抓包 |
 | `PacketParserTest`（4） | 完整报文 TCP/UDP/**ICMP** 分层解析、未知协议拒绝 | 真实抓包 |
@@ -267,7 +313,7 @@ HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是�
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 90 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 105 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -289,6 +335,8 @@ HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是�
 8. 给 `TcpCongestionControl` 增加 `ssthresh` 手动设置方法（模拟丢包前人为调低阈值），验证慢启动提前转入拥塞避免。
 9. 用 `SubnetCalculator.split` 把 10.0.0.0/8 等分成 256 个 /16，验证第一个是 10.0.0.0/16、最后一个是 10.255.0.0/16。
 10. 给 `TcpCongestionControl` 增加慢启动阈值翻倍（RFC 5681 的 exponential increase）：`ssthresh = min(ssthresh*2, cwnd)`，超时恢复后加速追回带宽。
+11. 用 `tcpdump`/Wireshark 抓一个真实 TCP 包，把 IP 首部和 TCP 段的字节拷进测试，用 `Checksums` 验证校验和是否为 0xFFFF（理解校验和的实际用途）。
+12. 给 `IpHeader` 增加「分片重组」模拟：给定同一标识的多个分片（MF/片偏移不同），按片偏移拼接回原数据报并验证长度，补测试。
 
 ## 📄 关联模块
 

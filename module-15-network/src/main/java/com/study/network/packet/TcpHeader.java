@@ -34,6 +34,9 @@ import java.util.Arrays;
  * 标志位在报文中的精确位置（第 12 字节起 16 bit）：
  *   数据偏移(4) | 保留(3) | NS(1) | CWR(1) | ECE(1) | URG(1) | ACK(1) | PSH(1) | RST(1) | SYN(1) | FIN(1)
  * 本类实现经典 5 标志位（ACK/PSH/RST/SYN/FIN），其余标志保留为 0。
+ *
+ * TCP 校验和（见 {@link Checksums}）：**必须**计算，覆盖「伪首部(源/目的 IP + 协议号 + TCP 长度)
+ * + TCP 首部 + 数据」。首部中的校验和字段在计算时置 0，算完再填回。
  */
 public class TcpHeader {
 
@@ -91,6 +94,11 @@ public class TcpHeader {
      *   本类只实现经典 5 标志（ACK/PSH/RST/SYN/FIN），掩码从 ACK=0x10 开始向下排。
      */
     public byte[] encode() {
+        return encodeWithChecksum(checksum);
+    }
+
+    /** 用指定的校验和字段值编码首部（计算校验和时传 0，发送时传算好的值）。 */
+    private byte[] encodeWithChecksum(int checksumValue) {
         byte[] bytes = new byte[FIXED_HEADER_LENGTH];
         // 源端口 / 目的端口
         writeShort(bytes, 0, sourcePort);
@@ -111,7 +119,7 @@ public class TcpHeader {
         bytes[13] = (byte) flags;
 
         writeShort(bytes, 14, windowSize);
-        writeShort(bytes, 16, checksum);
+        writeShort(bytes, 16, checksumValue);
         writeShort(bytes, 18, urgentPointer);
         return bytes;
     }
@@ -158,6 +166,48 @@ public class TcpHeader {
         return new TcpHeader(sourcePort, destinationPort, seq, ackNum,
                 dataOffset, ack, syn, fin, psh, rst,
                 windowSize, checksum, urgentPointer);
+    }
+
+    /**
+     * 计算 TCP 校验和（TCP 校验和**必须**计算，不可省略）：
+     * 覆盖「伪首部(源/目的 IP + 协议号 6 + TCP 长度) + TCP 首部 + 数据」。
+     * 计算时首部校验和字段置 0；数据为奇数个字节时末尾按 0 补齐（不参与传输）。
+     *
+     * @param sourceIp      源 IP（32 bit，来自 IP 首部）
+     * @param destinationIp 目的 IP（32 bit）
+     * @param payload       TCP 数据（可为空）
+     */
+    public int computeChecksum(int sourceIp, int destinationIp, byte[] payload) {
+        byte[] header = encodeWithChecksum(0);
+        byte[] segment = concat(header, payload);
+        return Checksums.transportChecksum(sourceIp, destinationIp, IpHeader.PROTOCOL_TCP,
+                headerLength() + payload.length, segment);
+    }
+
+    /** 返回校验和已填好的一份拷贝（校验和 = computeChecksum 的结果），可直接发送。 */
+    public TcpHeader withValidChecksum(int sourceIp, int destinationIp, byte[] payload) {
+        return new TcpHeader(sourcePort, destinationPort, sequenceNumber, acknowledgmentNumber,
+                dataOffset, ack, syn, fin, psh, rst, windowSize,
+                computeChecksum(sourceIp, destinationIp, payload), urgentPointer);
+    }
+
+    /** 完整 TCP 报文段 = 首部（含已填的校验和）+ 数据，用于发送或整体校验。 */
+    public byte[] segment(byte[] payload) {
+        return concat(encode(), payload);
+    }
+
+    private static byte[] concat(byte[]... arrays) {
+        int total = 0;
+        for (byte[] array : arrays) {
+            total += array.length;
+        }
+        byte[] result = new byte[total];
+        int offset = 0;
+        for (byte[] array : arrays) {
+            System.arraycopy(array, 0, result, offset, array.length);
+            offset += array.length;
+        }
+        return result;
     }
 
     /** 大端写 16 bit 无符号整数 */

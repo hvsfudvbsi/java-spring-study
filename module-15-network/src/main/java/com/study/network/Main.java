@@ -1,6 +1,7 @@
 package com.study.network;
 
 import com.study.network.ip.SubnetCalculator;
+import com.study.network.packet.Checksums;
 import com.study.network.packet.EthernetFrame;
 import com.study.network.packet.IcmpHeader;
 import com.study.network.packet.IpHeader;
@@ -20,8 +21,10 @@ import com.study.network.socket.TcpStickyPacketDemo;
  * 展示内容：
  *   1. TCP/UDP 协议对比表
  *   2. TCP 首部 20 字节编码与解析（含数据偏移/标志位）
- *   3. UDP 首部 8 字节编码与解析
+ *   2.1 TCP 校验和（伪首部 + 首部 + 数据）
+ *   3. UDP 首部 8 字节编码与解析（含 UDP 校验和）
  *   4. IPv4 首部编码与解析（版本/IHL/地址）
+ *   4.1 IP 分片字段（标识/标志 MF/片偏移）
  *   5. 以太网帧头 14 字节
  *   5.1 ICMP 首部（ping 请求，类型/代码/校验和）
  *   6. 完整报文分层解析（以太网 -> IP -> TCP/UDP/ICMP）
@@ -45,13 +48,29 @@ public class Main {
         System.out.println("TCP SYN 报文 " + tcpBytes.length + " 字节: " + syn);
         TcpHeader parsedTcp = TcpHeader.parse(tcpBytes);
         System.out.println("解析回: " + parsedTcp);
+
+        // 2.1 TCP 校验和：必须计算，覆盖「伪首部(源/目的 IP + 协议号 + TCP 长度) + 首部 + 数据」
+        int srcIp = IpHeader.parseIp("192.168.1.10");
+        int dstIp = IpHeader.parseIp("93.184.216.34");
+        byte[] payload = "GET / HTTP/1.1".getBytes();
+        int tcpChecksum = syn.computeChecksum(srcIp, dstIp, payload);
+        System.out.println("TCP 校验和（伪首部 + SYN + 数据 " + payload.length + " 字节）: 0x"
+                + String.format("%04X", tcpChecksum));
+        TcpHeader synWithChecksum = syn.withValidChecksum(srcIp, dstIp, payload);
+        System.out.println("校验通过（整体反码和为 0xFFFF）: "
+                + Checksums.verifyTransport(srcIp, dstIp, IpHeader.PROTOCOL_TCP,
+                synWithChecksum.headerLength() + payload.length,
+                synWithChecksum.segment(payload)));
         System.out.println();
 
-        // 3. UDP 首部：DNS 查询 53 端口
+        // 3. UDP 首部：DNS 查询 53 端口（含 UDP 校验和，IPv4 下可选）
         UdpHeader udp = new UdpHeader(53000, 53, 8 + 12, 0);
         byte[] udpBytes = udp.encode();
         System.out.println("UDP 报文 " + udpBytes.length + " 字节: " + udp);
         System.out.println("解析回: " + UdpHeader.parse(udpBytes));
+        int udpChecksum = udp.computeChecksum(srcIp, dstIp, new byte[12]);
+        System.out.println("UDP 校验和（伪首部 + 首部 + 12 字节数据）: 0x"
+                + String.format("%04X", udpChecksum));
         System.out.println();
 
         // 4. IPv4 首部
@@ -61,6 +80,11 @@ public class Main {
         byte[] ipBytes = ip.encode();
         System.out.println("IP 首部 " + ipBytes.length + " 字节: " + ip);
         System.out.println("解析回: " + IpHeader.parse(ipBytes));
+
+        // 4.1 IP 分片：MF=1、片偏移 185（= 1480 字节 ÷ 8 字节单位），同一标识 0x1234
+        IpHeader frag = ip.withFragmentation(IpHeader.FLAG_MF, 185);
+        System.out.println("IP 分片首部: " + frag);
+        System.out.println("解析回: " + IpHeader.parse(frag.encode()));
         System.out.println();
 
         // 5. 以太网帧头

@@ -75,4 +75,62 @@ class IpHeaderTest {
         assertEquals("10.0.0.2", IpHeader.toIpString(parsed.destinationIp()));
         assertEquals(IpHeader.PROTOCOL_TCP, parsed.protocol());
     }
+
+    // ---- 分片三件套（标识 / 标志 / 片偏移） ----
+
+    @Test
+    @DisplayName("分片字段往返：DF 标志 + 片偏移 185（1480 字节 ÷ 8）编码解析一致")
+    void fragmentationRoundTrip() {
+        IpHeader original = new IpHeader(4, 5, 40, 0x1234,
+                IpHeader.FLAG_DF, 185,
+                64, IpHeader.PROTOCOL_TCP, 0,
+                IpHeader.parseIp("192.168.1.10"), IpHeader.parseIp("93.184.216.34"));
+
+        IpHeader parsed = IpHeader.parse(original.encode());
+        assertEquals(0x1234, parsed.identification());
+        assertEquals(IpHeader.FLAG_DF, parsed.flags());
+        assertEquals(185, parsed.fragmentOffset());
+        assertEquals(185 * 8, parsed.fragmentOffset() * 8, "片偏移单位是 8 字节");
+    }
+
+    @Test
+    @DisplayName("标志位字节布局：MF=0x20、DF=0x40、DF+MF=0x60 写入第 6 字节高 3 位")
+    void flagBitLayout() {
+        IpHeader mf = new IpHeader(4, 5, 40, 1, IpHeader.FLAG_MF, 0, 64, 17, 0, 0, 0);
+        assertEquals(0x20, mf.encode()[6] & 0xFF, "MF 置 1 -> bit13");
+        assertEquals(0x00, mf.encode()[7] & 0xFF);
+
+        IpHeader df = new IpHeader(4, 5, 40, 1, IpHeader.FLAG_DF, 0, 64, 17, 0, 0, 0);
+        assertEquals(0x40, df.encode()[6] & 0xFF, "DF 置 1 -> bit14");
+
+        IpHeader both = new IpHeader(4, 5, 40, 1, IpHeader.FLAG_DF | IpHeader.FLAG_MF, 0,
+                64, 17, 0, 0, 0);
+        assertEquals(0x60, both.encode()[6] & 0xFF);
+    }
+
+    @Test
+    @DisplayName("片偏移最大 8191（13 bit）：最大值往返一致，描述方法输出 DF/MF")
+    void fragmentOffsetMax() {
+        IpHeader original = new IpHeader(4, 5, 40, 1,
+                IpHeader.FLAG_MF, 0x1FFF,
+                64, 17, 0, 0, 0);
+        IpHeader parsed = IpHeader.parse(original.encode());
+        assertEquals(0x1FFF, parsed.fragmentOffset());
+        assertEquals("MF", parsed.flagsDescription());
+
+        IpHeader df = original.withFragmentation(IpHeader.FLAG_DF, 0);
+        assertEquals("DF", df.flagsDescription());
+        assertEquals(IpHeader.FLAG_DF, IpHeader.parse(df.encode()).flags());
+    }
+
+    @Test
+    @DisplayName("非法分片参数被拒绝：flags 超出 3 bit、片偏移超出 13 bit")
+    void invalidFragmentationRejected() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new IpHeader(4, 5, 40, 1, 8, 0, 64, 17, 0, 0, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> new IpHeader(4, 5, 40, 1, 0, 0x2000, 64, 17, 0, 0, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> new IpHeader(4, 5, 40, 1, 0, -1, 64, 17, 0, 0, 0));
+    }
 }
