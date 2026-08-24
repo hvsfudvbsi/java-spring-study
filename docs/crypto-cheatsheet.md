@@ -12,6 +12,8 @@
 
 ## 1. HMAC vs CMAC（重点对照）
 
+> 📄 对应代码：[HmacDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/mac/HmacDemo.java) + [HmacDemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/mac/HmacDemoTest.java) ｜ [CmacDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/mac/CmacDemo.java) + [CmacDemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/mac/CmacDemoTest.java)
+
 | 维度 | HMAC | CMAC |
 |---|---|---|
 | 构造 | 哈希 + 密钥 `H(key⊕opad ‖ H(key⊕ipad ‖ msg))` | 分组密码（AES）构造（NIST SP 800-38B，= OMAC1） |
@@ -29,6 +31,8 @@
 
 ## 2. 哈希选型
 
+> 📄 对应代码：[HashDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/hash/HashDemo.java) + [HashDemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/hash/HashDemoTest.java)
+
 | 算法 | 摘要长度 | 安全状态 | 用途 |
 |---|---|---|---|
 | MD5 | 16 字节 | 已破（碰撞） | 仅非安全校验 / 兼容 |
@@ -40,6 +44,8 @@
 **决策规则：** 默认 SHA-256；**密码存储用加盐 + 慢哈希（BCrypt/Argon2）**，不是裸 SHA-256；国密场景用 SM3；MD5/SHA-1 不做任何安全相关计算。
 
 ## 3. 对称加密选型（AES 模式）
+
+> 📄 对应代码：[AesDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/symmetric/AesDemo.java) + [AesDemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/symmetric/AesDemoTest.java) ｜ [Sm4Demo](../module-18-bouncy-castle/src/main/java/com/study/bc/symmetric/Sm4Demo.java) + [Sm4DemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/symmetric/Sm4DemoTest.java) ｜ [DesDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/symmetric/DesDemo.java) + [DesDemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/symmetric/DesDemoTest.java)
 
 | 模式 | 认证 | 填充 | 注意 | 用途 |
 |---|---|---|---|---|
@@ -53,6 +59,8 @@
 **国密对称：** 用 **SM4**（128 位分组/密钥，对标 AES-128），同样 GCM 优先。**DES/3DES** 仅遗留兼容（旧金融 / 读卡器 EMV 过渡），新系统一律 AES/SM4。
 
 ## 4. 非对称 / 签名选型
+
+> 📄 对应代码：[RsaDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/asymmetric/RsaDemo.java) + [RsaDemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/asymmetric/RsaDemoTest.java) ｜ [EccDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/asymmetric/EccDemo.java) + [EccDemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/asymmetric/EccDemoTest.java) ｜ [Sm2Demo](../module-18-bouncy-castle/src/main/java/com/study/bc/asymmetric/Sm2Demo.java) + [Sm2DemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/asymmetric/Sm2DemoTest.java) ｜ [SignatureDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/signature/SignatureDemo.java) + [SignatureDemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/signature/SignatureDemoTest.java)
 
 | 算法 | 类型 | 密钥长度 | 用途 |
 |---|---|---|---|
@@ -69,6 +77,8 @@
 
 ## 5. 密钥协商
 
+> 📄 对应代码：[KeyAgreementDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/key/KeyAgreementDemo.java) + [KeyAgreementDemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/key/KeyAgreementDemoTest.java)
+
 | 算法 | 安全性依赖 | 用途 |
 |---|---|---|
 | DH-2048 | 离散对数 | 遗留 / 兼容 |
@@ -77,6 +87,8 @@
 **注意：** 协商结果只是共享秘密，还需经 KDF（如 HKDF）派生会话密钥；公钥交换要防中间人（配证书 / 签名认证）。
 
 ## 6. 国密合规组合（SM2 + SM3 + SM4）
+
+> 📄 对应代码：[GmDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/gm/GmDemo.java) + [GmDemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/gm/GmDemoTest.java)
 
 ```
 发送方: SM4 加密数据 → SM2 加密 SM4 密钥 → SM3 摘要 → SM2 签名
@@ -87,6 +99,8 @@
 
 ## 7. 证书与密钥库
 
+> 📄 对应代码：[CertificateDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/cert/CertificateDemo.java) + [CertificateDemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/cert/CertificateDemoTest.java) ｜ [Pkcs12Demo](../module-18-bouncy-castle/src/main/java/com/study/bc/cert/Pkcs12Demo.java) + [Pkcs12DemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/cert/Pkcs12DemoTest.java) ｜ 密钥编码 [KeyManagementDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/key/KeyManagementDemo.java) + [KeyManagementDemoTest](../module-18-bouncy-castle/src/test/java/com/study/bc/key/KeyManagementDemoTest.java)
+
 | 组件 | 用途 |
 |---|---|
 | X.509 证书 | 公钥绑定身份 + 信任链（CA 签发、有效期、SAN 域名）——HTTPS、代码签名、S/MIME |
@@ -94,14 +108,15 @@
 
 ## 8. 一分钟决策速查
 
-| 需求 | 选 |
-|---|---|
-| 校验文件没坏 | SHA-256 |
-| 存储密码 | 加盐 + BCrypt/Argon2（慢哈希） |
-| 网络/字段传输加密 | AES-GCM（国密场景 SM4-GCM） |
-| API 签名（共享密钥） | HMAC-SHA256 |
-| API 签名（非对称/不可否认） | Ed25519（国密 SM3withSM2） |
-| 受限设备消息认证 | AES-CMAC |
-| 双方协商会话密钥 | ECDH（P-256） |
-| 大块数据加密 + 密钥分发 | 混合加密：对称加密数据 + 非对称包密钥 |
-| HTTPS 服务器证书 | X.509 + PKCS#12 |
+| 需求 | 选 | 对应代码 |
+|---|---|---|
+| 校验文件没坏 | SHA-256 | [HashDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/hash/HashDemo.java) |
+| 存储密码 | 加盐 + BCrypt/Argon2（慢哈希） | [HashDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/hash/HashDemo.java)（加盐演示） |
+| 网络/字段传输加密 | AES-GCM（国密场景 SM4-GCM） | [AesDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/symmetric/AesDemo.java) · [Sm4Demo](../module-18-bouncy-castle/src/main/java/com/study/bc/symmetric/Sm4Demo.java) |
+| API 签名（共享密钥） | HMAC-SHA256 | [HmacDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/mac/HmacDemo.java) |
+| API 签名（非对称/不可否认） | Ed25519（国密 SM3withSM2） | [SignatureDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/signature/SignatureDemo.java) |
+| 受限设备消息认证 | AES-CMAC | [CmacDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/mac/CmacDemo.java) |
+| 双方协商会话密钥 | ECDH（P-256） | [EccDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/asymmetric/EccDemo.java) · [KeyAgreementDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/key/KeyAgreementDemo.java) |
+| 大块数据加密 + 密钥分发 | 混合加密：对称加密数据 + 非对称包密钥 | [GmDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/gm/GmDemo.java) |
+| HTTPS 服务器证书 | X.509 + PKCS#12 | [CertificateDemo](../module-18-bouncy-castle/src/main/java/com/study/bc/cert/CertificateDemo.java) · [Pkcs12Demo](../module-18-bouncy-castle/src/main/java/com/study/bc/cert/Pkcs12Demo.java) |
+| 国密 PKI / 电子签章 | SM2 + SM3 | [Sm2Demo](../module-18-bouncy-castle/src/main/java/com/study/bc/asymmetric/Sm2Demo.java) |
