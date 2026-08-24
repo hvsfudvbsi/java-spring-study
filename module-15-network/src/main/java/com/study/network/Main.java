@@ -197,9 +197,9 @@ public class Main {
         System.out.println(httpReqText.replace("\r\n", "⏎\n"));
         System.out.println("解析回: " + HttpRequest.parse(httpReqText));
 
-        Map<String, String> respHeaders = new LinkedHashMap<>();
-        respHeaders.put("Content-Type", "text/html; charset=utf-8");
-        respHeaders.put("Content-Length", "13");
+        Map<String, List<String>> respHeaders = new LinkedHashMap<>();
+        respHeaders.put("Content-Type", List.of("text/html; charset=utf-8"));
+        respHeaders.put("Content-Length", List.of("13"));
         HttpResponse httpResponse = new HttpResponse("HTTP/1.1", 200, "OK",
                 respHeaders, "<h1>Hello</h1>");
         String httpRespText = httpResponse.encode();

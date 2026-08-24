@@ -11,6 +11,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -83,7 +84,7 @@ public class MinimalHttpServer {
         }
     }
 
-    /** 简单路由：/、/hello 返回 HTML，/chunked 用分块传输编码，其余 404。 */
+    /** 简单路由：/、/hello 返回 HTML，/chunked 分块编码，/etag 条件缓存，其余 404。 */
     private HttpResponse route(HttpRequest request) {
         String path = request.uri();
         if (!"GET".equals(request.method())) {
@@ -96,6 +97,16 @@ public class MinimalHttpServer {
         if ("/chunked".equals(path)) {
             return chunked("<h1>分块传输</h1>", "<p>第二块，服务端无需预先知道总长度</p>");
         }
+        if ("/etag".equals(path)) {
+            // 条件缓存：客户端 If-None-Match 与资源 ETag 相同 -> 304，省去重新传输响应体
+            String etag = "\"v1\"";
+            if (etag.equals(request.header("If-None-Match"))) {
+                return HttpResponse.notModified(etag);
+            }
+            HttpResponse response = HttpResponse.text(200, "OK",
+                    "<h1>etag 资源</h1>\n<p>资源内容（未变化时返回 304 走缓存）</p>\n");
+            return response.withHeader("ETag", etag);
+        }
         return HttpResponse.text(404, "Not Found", "404 页面不存在: " + path + "\n");
     }
 
@@ -107,9 +118,9 @@ public class MinimalHttpServer {
                     .append("\r\n").append(chunk).append("\r\n");
         }
         body.append("0\r\n\r\n"); // 最后一个块：大小 0 + 空行（无 trailer）
-        Map<String, String> headers = new LinkedHashMap<>();
-        headers.put("Content-Type", "text/html; charset=utf-8");
-        headers.put("Transfer-Encoding", "chunked"); // 注意：不能同时有 Content-Length
+        Map<String, List<String>> headers = new LinkedHashMap<>();
+        headers.put("Content-Type", List.of("text/html; charset=utf-8"));
+        headers.put("Transfer-Encoding", List.of("chunked")); // 注意：不能同时有 Content-Length
         return new HttpResponse("HTTP/1.1", 200, "OK", headers, body.toString());
     }
 

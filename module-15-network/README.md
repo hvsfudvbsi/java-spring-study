@@ -49,7 +49,7 @@
 | `socket/framed/FrameCodec` | **长度头帧协议**：`[4 字节长度][UTF-8 内容]`，编码 + 累积解码（粘包/拆包/半帧） |
 | `socket/framed/FramedTcpServer` + `FramedTcpClient` | **多线程帧协议服务器**：每连接一线程，按长度头拆帧回声 |
 | `socket/MinimalHttpClient` + `MinimalHttpServer` | **纯 JDK 最小 HTTP 客户端/服务器**：Socket 发请求收响应，按 Content-Length 或 **chunked 分块**切分响应（HTTP 版的粘包解决），HttpRequest/HttpResponse 真实落地 |
-| `socket/HttpConnection` | **Keep-Alive 连接复用**：同一 Socket 连发多个请求，靠 Content-Length/chunked 切分响应边界，最后一条才关；Connection: close / HTTP/1.0 无长度 / EOF 时自动判定不可复用 |
+| `socket/HttpConnection` | **Keep-Alive 连接复用**：同一 Socket 连发多个请求，靠 Content-Length/chunked 切分响应边界；**管线化**（一次写出多请求依次读回）、**重定向跟随**（3xx+Location）、**gzip 自动解压**；Connection: close / HTTP/1.0 无长度 / EOF 时自动判定不可复用 |
 | `tls/TlsHandshakeDemo` | **纯 JDK TLS 握手详解**：SSLSocket 真实握手，打印 ClientHello→Finished 报文与协商结果 | javax.net.debug 跟踪、SSLContext/KeyStore/自签名证书、SSLSession |
 
 ### 第四部分：IP 地址与子网划分（CIDR）
@@ -468,7 +468,7 @@ HTTP 是浏览器与服务器之间的文本协议，报文由「起始行 + 头
 
 关键理解（面试常问）：
 - **HTTP 无状态**：服务器不保存客户端状态，靠 Cookie/Session 维持会话（见 module-03）。
-- **多值头**：一个字段名可以出现多次（多个 `Cookie`/`Set-Cookie`/`Via`），解析时值按顺序追加而不是覆盖，`HttpRequest` 用 `Map<String, List<String>>` 保存。
+- **多值头**：一个字段名可以出现多次（多个 `Cookie`/`Set-Cookie`/`Via`），解析时值按顺序追加而不是覆盖，`HttpRequest` 和 `HttpResponse` 都用 `Map<String, List<String>>` 保存（`header()` 取第一个值，`headerValues()` 取全部）。
 - **Content-Length 与粘包**：HTTP/1.1 默认 Keep-Alive 复用连接，响应长度靠 Content-Length（或 chunked）切分，否则无法判断响应何时结束——这就是粘包问题在 HTTP 里的表现（对应本模块粘包章节）。
 - 状态码 3 位数字 + 原因短语配套：程序看状态码、人看原因短语；原因短语可以含空格（如 Not Found）。
 - HTTP/1.1 vs 1.0：1.1 默认长连接、支持 Host 头（一台服务器多个域名）、支持 chunked/断点续传。
@@ -482,6 +482,10 @@ HTTP 是浏览器与服务器之间的文本协议，报文由「起始行 + 头
 - 服务端 `readRequest()`：与客户端镜像——逐字节读请求头到空行，按 Content-Length 精确读请求体，再 `HttpResponse.text()` 回响应（自动算 Content-Type/Content-Length）。
 - 这正是**粘包问题的 HTTP 版落地**：请求/响应都是「头部 + 空行 + 主体」，主体长度靠 Content-Length 切分，两条报文不会混在一起（对照 socket 章节的长度头帧协议）。
 - **请求走私防护**：同时声明 Content-Length 与 Transfer-Encoding 是攻击特征（RFC 7230 3.3.3），客户端直接拒绝。
+- **gzip 解压**：响应头 `Content-Encoding: gzip` 时响应体是压缩字节（Content-Length 是压缩后长度），客户端读完原始字节后用 `GZIPInputStream` 解压成明文（`HttpConnection` 自动处理）。
+- **304 条件缓存**：服务器给资源标 `ETag`；客户端带 `If-None-Match` 请求，命中则回 **304 Not Modified**（无响应体），浏览器直接用本地缓存——省去重新传输响应体，是最常见的性能优化点（`MinimalHttpServer` 的 `/etag` 路由演示）。
+- **管线化（Pipelining）**：`HttpConnection.pipeline()` 一次写出多个请求（一个系统调用），再按序读回——响应顺序与请求顺序一致，每个响应必须有明确边界。
+- **重定向跟随**：`requestFollowingRedirects()` 自动跟随 3xx + `Location`（支持相对路径与绝对 URL，同主机），超过 maxHops 放弃；跨主机需要新建连接，留作练习。
 
 **Keep-Alive 连接复用（`socket/HttpConnection`）——粘包问题的终极考验：**
 
@@ -518,19 +522,19 @@ close()       <────────────────────  读
 | `DnsHeaderTest`（8） | 12 字节固定、查询/响应工厂、标志位字节布局、TC/RA 组合、NXDOMAIN、偏移解析、非法参数 | 真实 DNS 服务器 |
 | `DnsQuestionTest`（8） | 标签编码（[3]www[7]example[3]com[0]）、往返、QTYPE 描述、紧跟头部解析、压缩指针拒绝、非法域名 | 真实域名解析 |
 | `HttpRequestTest`（10） | 请求行/头部/请求体往返、POST+Content-Length、**多值头（多个 Cookie 往返/重复头追加/大小写不敏感读取）**、LF 容错、顺序保持、非法报文拒绝 | 真实浏览器/服务器 |
-| `HttpResponseTest`（7） | 状态行（含空格原因短语）往返、状态码语义/类别、自动补原因短语、2xx 判断、非法状态行拒绝、body 含换行 | 真实浏览器/服务器 |
+| `HttpResponseTest`（11） | 状态行（含空格原因短语）往返、状态码语义/类别、自动补原因短语、2xx 判断、非法状态行拒绝、body 含换行、**多值头（多个 Set-Cookie 各占一行/顺序追加/header 取第一个）**、**notModified 工厂（ETag/304）**、withHeader 不可变拷贝 | 真实浏览器/服务器 |
 | `TransportProtocolTest`（4） | TCP/UDP 属性与首部长度对比、协议号反查 | — |
 | `TcpStateMachineTest`（27） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、**RST 连接重置（拒绝/重置/忽略）**、**半开连接检测（SYN 重传超时/计数重置/非法状态）**、**keep-alive 假死检测（探测超时/对端响应重置/非法状态）**、非法转换拒绝 | 真实网络时序 |
 | `SubnetCalculatorTest`（15） | 掩码转换、网络/广播地址、主机范围、可用主机数（含 /30、/31、/32 边界）、归属判断、等分子网 | 真实路由表 |
 | `TcpCongestionControlTest`（13） | 慢启动指数增长、拥塞避免线性增长、超时重置、快重传/快恢复、有效窗口 min(cwnd, rwnd)、参数校验 | 真实网络拥塞 |
 | `SocketIntegrationTest`（4） | **真实回环** TCP/UDP 回显、粘包 vs 有边界 | 跨主机网络 |
 | `MinimalHttpClientTest`（9） | **真实回环** GET 往返（按 Content-Length 收 body）、**拆包分 5 片收齐**、无 Content-Length 读到 EOF、**chunked（单块/多块十六进制大小/分片写拆包/trailer 跳过/CL+TE 走私拒绝）**、**MinimalHttpServer 配套 200/404/405/chunked** | 跨主机网络、公网站点 |
-| `HttpConnectionTest`（5） | **真实回环 Keep-Alive 复用**：连发 3 请求切分正确、Connection: close 后不可复用、HTTP/1.0 无长度 EOF 不可复用、chunked 后仍可继续发、MinimalHttpServer 配套 4 请求同一连接 | 跨主机网络、公网站点 |
+| `HttpConnectionTest`（10） | **真实回环 Keep-Alive 复用**：连发 3 请求切分正确、Connection: close 后不可复用、HTTP/1.0 无长度 EOF 不可复用、chunked 后仍可继续发、MinimalHttpServer 配套 4 请求同一连接、**gzip 解压**、**管线化 3 请求一次写出**、**重定向跟随/超限/跨主机拒绝** | 跨主机网络、公网站点 |
 | `FrameCodecTest`（9） | 长度头编码、粘包多帧、拆包等待、长度头分批、非法超长拒绝 | 真实网络 |
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 209 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 217 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -557,10 +561,10 @@ close()       <────────────────────  读
 13. 给 `ArpHeader` 增加「免费 ARP」构造助手（`gratuitous()`：发送方=目标，opcode=1），并用 `PacketParser` 验证能解析回同样的 IP->MAC 映射。
 14. 给 `DnsQuestion` 增加「多问题报文解析」：构造 QDCOUNT=2 的报文（两个不同域名），用 `parseAt` 连续解析并断言两次都正确。
 15. 给 `DnsHeader` 增加 `withId(int)` 拷贝方法，并演示「改事务 ID 后原响应校验失败」（模拟 DNS 伪造防护）。
-16. 给 `HttpResponse` 增加同样的多值头支持（`Map<String, List<String>>`，如多个 `Set-Cookie`），补测试（对照 `HttpRequest` 的实现）。
-17. 给 `MinimalHttpClient` 增加 **gzip 解压**：收到 `Content-Encoding: gzip` 响应时，用 `java.util.zip.GZIPInputStream` 解压主体再返回（提示：解压要在读完所有字节之后，注意 `Content-Length` 是压缩后的长度）。
-18. 给 `HttpConnection` 增加**请求管线化（Pipelining）**：不等响应就连续写出多个请求（一次系统调用发多个），再依次读回（提示：注意响应顺序与请求顺序一致；并发下要注意连接池）。
-19. 用 `HttpResponse` 构造一个 304 Not Modified 响应（含 `ETag` 头），并演示 `If-None-Match` 请求头命中时返回 304 的判据。
+16. 给 `MinimalHttpServer` 增加**动态 ETag**：按响应体内容算哈希作为 ETag（内容变 ETag 变），配合 `If-None-Match` 做真正的内容缓存判据（当前是固定 `"v1"`）。
+17. 给 `MinimalHttpClient` 增加 **HTTPS 支持**：把底层 `Socket` 换成 `SSLSocketFactory` 创建的 TLS 套接字（对照 `tls/TlsHandshakeDemo`），验证 `https://` 连接。
+18. 给 `HttpConnection` 增加**连接池**：维护一组 `HttpConnection` 供并发请求复用（如 `ConcurrentLinkedQueue` 空闲连接），用完归还、坏连接丢弃重连（提示：对照 module-12 线程池思路）。
+19. 给 `HttpConnection` 增加**跨主机重定向**：`Location` 指向不同 host 时新建连接继续跟随（提示：解析绝对 URL 的 host/port，用 `HttpConnection.connect` 新连接发起）。
 20. 把 SACK 接入 `TcpCongestionControl`：收到重复 ACK 时不再整窗口快重传，而是用 `SackBlock.gaps` 的返回区间**只标记丢失段重传**，补测试（对照当前全窗口快重传的行为差异）。
 
 ## 📄 关联模块
