@@ -48,7 +48,7 @@
 | `socket/TcpStickyPacketDemo` | **粘包演示**：连续发 3 条消息，接收方 read 次数 < 3（无边界）vs UDP 正好 3 次（有边界） |
 | `socket/framed/FrameCodec` | **长度头帧协议**：`[4 字节长度][UTF-8 内容]`，编码 + 累积解码（粘包/拆包/半帧） |
 | `socket/framed/FramedTcpServer` + `FramedTcpClient` | **多线程帧协议服务器**：每连接一线程，按长度头拆帧回声 |
-| `socket/MinimalHttpClient` + `MinimalHttpServer` | **纯 JDK 最小 HTTP 客户端/服务器**：Socket 发请求收响应，按 Content-Length 切分响应（HTTP 版的粘包解决），HttpRequest/HttpResponse 真实落地 |
+| `socket/MinimalHttpClient` + `MinimalHttpServer` | **纯 JDK 最小 HTTP 客户端/服务器**：Socket 发请求收响应，按 Content-Length 或 **chunked 分块**切分响应（HTTP 版的粘包解决），HttpRequest/HttpResponse 真实落地 |
 | `tls/TlsHandshakeDemo` | **纯 JDK TLS 握手详解**：SSLSocket 真实握手，打印 ClientHello→Finished 报文与协商结果 | javax.net.debug 跟踪、SSLContext/KeyStore/自签名证书、SSLSession |
 
 ### 第四部分：IP 地址与子网划分（CIDR）
@@ -473,10 +473,12 @@ HTTP 是浏览器与服务器之间的文本协议，报文由「起始行 + 头
 **纯 JDK 最小 HTTP 客户端/服务器（`socket/MinimalHttpClient` + `socket/MinimalHttpServer`）** 把上面的协议类真实跑起来：
 
 - 客户端 `request()`：Socket 连接 → `HttpRequest.encode()` 发请求 → **逐字节读响应头到 CRLFCRLF**（不用 BufferedReader，避免缓冲吞掉响应体字节）→ 从头部取 Content-Length → `readExactly` 循环收齐响应体（一次 read 可能只到半个包，必须循环）。
-- 没有 Content-Length（HTTP/1.0 或 `Connection: close`）→ 读到 EOF 兜底；`Transfer-Encoding: chunked` 明确拒绝（留作练习）。
+- `Transfer-Encoding: chunked` → **按块循环读**：每块是 `[十六进制大小][;扩展]\r\n[数据]\r\n`，直到 `0` 块（RFC 7230 4.1），0 块后的 trailer 头部跳过；每块**自己声明长度**，服务端可流式边生成边发送，不必预先知道总长度。
+- 没有 Content-Length 也没有 Transfer-Encoding（HTTP/1.0 或 `Connection: close`）→ 读到 EOF 兜底。
 - 服务端 `readRequest()`：与客户端镜像——逐字节读请求头到空行，按 Content-Length 精确读请求体，再 `HttpResponse.text()` 回响应（自动算 Content-Type/Content-Length）。
 - 这正是**粘包问题的 HTTP 版落地**：请求/响应都是「头部 + 空行 + 主体」，主体长度靠 Content-Length 切分，两条报文不会混在一起（对照 socket 章节的长度头帧协议）。
-- 留作练习：chunked、重定向跟随、Cookie 会话、Keep-Alive 连接复用、HTTPS。
+- **请求走私防护**：同时声明 Content-Length 与 Transfer-Encoding 是攻击特征（RFC 7230 3.3.3），客户端直接拒绝。
+- 留作练习：重定向跟随、Cookie 会话、Keep-Alive 连接复用、HTTPS。
 
 ## 🧪 测试
 
@@ -501,12 +503,12 @@ HTTP 是浏览器与服务器之间的文本协议，报文由「起始行 + 头
 | `SubnetCalculatorTest`（15） | 掩码转换、网络/广播地址、主机范围、可用主机数（含 /30、/31、/32 边界）、归属判断、等分子网 | 真实路由表 |
 | `TcpCongestionControlTest`（13） | 慢启动指数增长、拥塞避免线性增长、超时重置、快重传/快恢复、有效窗口 min(cwnd, rwnd)、参数校验 | 真实网络拥塞 |
 | `SocketIntegrationTest`（4） | **真实回环** TCP/UDP 回显、粘包 vs 有边界 | 跨主机网络 |
-| `MinimalHttpClientTest`（5） | **真实回环** GET 往返（按 Content-Length 收 body）、**拆包分 5 片收齐**、无 Content-Length 读到 EOF、chunked 拒绝、**MinimalHttpServer 配套 200/404/405** | 跨主机网络、公网站点 |
+| `MinimalHttpClientTest`（9） | **真实回环** GET 往返（按 Content-Length 收 body）、**拆包分 5 片收齐**、无 Content-Length 读到 EOF、**chunked（单块/多块十六进制大小/分片写拆包/trailer 跳过/CL+TE 走私拒绝）**、**MinimalHttpServer 配套 200/404/405/chunked** | 跨主机网络、公网站点 |
 | `FrameCodecTest`（9） | 长度头编码、粘包多帧、拆包等待、长度头分批、非法超长拒绝 | 真实网络 |
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 200 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 204 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -534,7 +536,7 @@ HTTP 是浏览器与服务器之间的文本协议，报文由「起始行 + 头
 14. 给 `DnsQuestion` 增加「多问题报文解析」：构造 QDCOUNT=2 的报文（两个不同域名），用 `parseAt` 连续解析并断言两次都正确。
 15. 给 `DnsHeader` 增加 `withId(int)` 拷贝方法，并演示「改事务 ID 后原响应校验失败」（模拟 DNS 伪造防护）。
 16. 给 `HttpResponse` 增加同样的多值头支持（`Map<String, List<String>>`，如多个 `Set-Cookie`），补测试（对照 `HttpRequest` 的实现）。
-17. 给 `MinimalHttpClient` 增加 **chunked 传输编码解析**：按 `5\r\nhello\r\n0\r\n\r\n` 的块格式循环读块直到 `0` 块，支持真实的 `Transfer-Encoding: chunked` 响应（提示：读头时先按块声明长度逐块收，别按 Content-Length）。
+17. 给 `MinimalHttpClient` 增加 **gzip 解压**：收到 `Content-Encoding: gzip` 响应时，用 `java.util.zip.GZIPInputStream` 解压主体再返回（提示：解压要在读完所有字节之后，注意 `Content-Length` 是压缩后的长度）。
 18. 给 `MinimalHttpClient` 增加 **Keep-Alive 连接复用**：同一 Socket 连续发多个请求，靠 Content-Length 切分每条响应，最后一条才发 `Connection: close`（对照 `FrameCodec` 的累积解码思路）。
 19. 用 `HttpResponse` 构造一个 304 Not Modified 响应（含 `ETag` 头），并演示 `If-None-Match` 请求头命中时返回 304 的判据。
 20. 把 SACK 接入 `TcpCongestionControl`：收到重复 ACK 时不再整窗口快重传，而是用 `SackBlock.gaps` 的返回区间**只标记丢失段重传**，补测试（对照当前全窗口快重传的行为差异）。

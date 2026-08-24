@@ -10,6 +10,8 @@ import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 纯 JDK 最小 HTTP 服务器——只用 {@link ServerSocket} 收请求、回响应，配合 HttpRequest/HttpResponse 解析。
@@ -17,10 +19,11 @@ import java.nio.charset.StandardCharsets;
  * 与 {@link MinimalHttpClient} 互为镜像，共同演示「HTTP 的粘包解决」：
  * 服务端逐字节读请求头直到 CRLFCRLF，从头部解析 Content-Length 再精确读请求体
  * （{@link #readRequest}），响应则用 {@link HttpResponse#encode()} 序列化——
- * 响应体长度由 Content-Length 声明，客户端据此切分，两条响应不会混在一起。
+ * 响应体长度由 Content-Length 声明（`/chunked` 路由用 Transfer-Encoding: chunked 分块），
+ * 客户端据此切分，两条响应不会混在一起。
  *
  * 限制（留作练习）：只支持 GET、单线程串行 accept（一次只处理一个连接）、
- * 无 Keep-Alive 复用、无 chunked、无静态文件目录遍历防护。真实服务器用 Netty（module-11）。
+ * 无 Keep-Alive 复用、无静态文件目录遍历防护。真实服务器用 Netty（module-11）。
  */
 public class MinimalHttpServer {
 
@@ -64,7 +67,7 @@ public class MinimalHttpServer {
                 + response.reasonPhrase() + " (" + response.body().length() + " 字节)");
     }
 
-    /** 简单路由：/ 与 /hello 返回 HTML，其余 404。 */
+    /** 简单路由：/、/hello 返回 HTML，/chunked 用分块传输编码，其余 404。 */
     private HttpResponse route(HttpRequest request) {
         String path = request.uri();
         if (!"GET".equals(request.method())) {
@@ -74,7 +77,24 @@ public class MinimalHttpServer {
             return HttpResponse.text(200, "OK",
                     "<h1>Hello from MinimalHttpServer</h1>\n<p>你请求了 " + path + "</p>\n");
         }
+        if ("/chunked".equals(path)) {
+            return chunked("<h1>分块传输</h1>", "<p>第二块，服务端无需预先知道总长度</p>");
+        }
         return HttpResponse.text(404, "Not Found", "404 页面不存在: " + path + "\n");
+    }
+
+    /** 构造 chunked 响应：每块自己声明十六进制长度，最后是 0 块。 */
+    private HttpResponse chunked(String... chunks) {
+        StringBuilder body = new StringBuilder();
+        for (String chunk : chunks) {
+            body.append(Integer.toHexString(chunk.getBytes(StandardCharsets.UTF_8).length))
+                    .append("\r\n").append(chunk).append("\r\n");
+        }
+        body.append("0\r\n\r\n"); // 最后一个块：大小 0 + 空行（无 trailer）
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Content-Type", "text/html; charset=utf-8");
+        headers.put("Transfer-Encoding", "chunked"); // 注意：不能同时有 Content-Length
+        return new HttpResponse("HTTP/1.1", 200, "OK", headers, body.toString());
     }
 
     /** 读取一个请求：头部逐字节读到空行 -> 按 Content-Length 精确读请求体。 */

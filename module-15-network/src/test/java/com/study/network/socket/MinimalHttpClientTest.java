@@ -98,8 +98,8 @@ class MinimalHttpClientTest {
     }
 
     @Test
-    @DisplayName("chunked 传输编码：明确拒绝并提示（留作练习）")
-    void chunkedIsRejected() throws Exception {
+    @DisplayName("chunked 单块：5\r\nhello\r\n0\r\n\r\n 解码为 hello")
+    void chunkedSingleBlock() throws Exception {
         int port = freeTcpPort();
         Thread server = startServer(port, socket -> {
             readRequestHead(socket);
@@ -109,9 +109,86 @@ class MinimalHttpClientTest {
             socket.getOutputStream().flush();
         });
         try {
-            UnsupportedOperationException ex = assertThrows(UnsupportedOperationException.class,
+            HttpResponse response = MinimalHttpClient.get("127.0.0.1", port, "/");
+            assertEquals("hello", response.body());
+            assertEquals("chunked", response.header("Transfer-Encoding"));
+        } finally {
+            server.interrupt();
+        }
+    }
+
+    @Test
+    @DisplayName("chunked 多块 + 十六进制大小：A=10 字节块拼 world，尾随 0 块")
+    void chunkedMultipleBlocksHexSize() throws Exception {
+        int port = freeTcpPort();
+        Thread server = startServer(port, socket -> {
+            readRequestHead(socket);
+            // 大小用大写十六进制：A = 10（0123456789）、5 = 5（world）
+            String response = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+                    + "A\r\n0123456789\r\n5\r\nworld\r\n0\r\n\r\n";
+            socket.getOutputStream().write(response.getBytes(StandardCharsets.US_ASCII));
+            socket.getOutputStream().flush();
+        });
+        try {
+            HttpResponse response = MinimalHttpClient.get("127.0.0.1", port, "/");
+            assertEquals("0123456789world", response.body());
+        } finally {
+            server.interrupt();
+        }
+    }
+
+    @Test
+    @DisplayName("chunked 拆包：整条响应按 1~3 字节分片写，解码结果不变")
+    void chunkedFragmented() throws Exception {
+        int port = freeTcpPort();
+        Thread server = startServer(port, socket -> {
+            readRequestHead(socket);
+            String response = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+                    + "3\r\nfoo\r\n3\r\nbar\r\n0\r\n\r\n";
+            writeSlowly(socket.getOutputStream(), response);
+        });
+        try {
+            HttpResponse response = MinimalHttpClient.get("127.0.0.1", port, "/");
+            assertEquals("foobar", response.body());
+        } finally {
+            server.interrupt();
+        }
+    }
+
+    @Test
+    @DisplayName("chunked 带 trailer：0 块后的头部行被跳过，主体不受影响")
+    void chunkedWithTrailer() throws Exception {
+        int port = freeTcpPort();
+        Thread server = startServer(port, socket -> {
+            readRequestHead(socket);
+            String response = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n"
+                    + "5\r\nhello\r\n0\r\nX-Checksum: abc123\r\n\r\n";
+            socket.getOutputStream().write(response.getBytes(StandardCharsets.US_ASCII));
+            socket.getOutputStream().flush();
+        });
+        try {
+            HttpResponse response = MinimalHttpClient.get("127.0.0.1", port, "/");
+            assertEquals("hello", response.body(), "trailer 是元数据，不属于响应体");
+        } finally {
+            server.interrupt();
+        }
+    }
+
+    @Test
+    @DisplayName("请求走私防护：同时声明 Content-Length 与 Transfer-Encoding 被拒绝")
+    void chunkedRejectsContentLengthSmuggling() throws Exception {
+        int port = freeTcpPort();
+        Thread server = startServer(port, socket -> {
+            readRequestHead(socket);
+            String response = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n"
+                    + "Transfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n";
+            socket.getOutputStream().write(response.getBytes(StandardCharsets.US_ASCII));
+            socket.getOutputStream().flush();
+        });
+        try {
+            IOException ex = assertThrows(IOException.class,
                     () -> MinimalHttpClient.get("127.0.0.1", port, "/"));
-            assertTrue(ex.getMessage().contains("chunked"));
+            assertTrue(ex.getMessage().contains("走私"), "RFC 7230 3.3.3：两个长度机制冲突应拒绝");
         } finally {
             server.interrupt();
         }
@@ -141,6 +218,12 @@ class MinimalHttpClientTest {
             HttpResponse notFound = MinimalHttpClient.get("127.0.0.1", port, "/nope");
             assertEquals(404, notFound.statusCode());
             assertTrue(notFound.body().contains("404"));
+            // chunked 路径：服务端分块编码，客户端按块解码
+            HttpResponse chunked = MinimalHttpClient.get("127.0.0.1", port, "/chunked");
+            assertEquals(200, chunked.statusCode());
+            assertEquals("chunked", chunked.header("Transfer-Encoding"));
+            assertTrue(chunked.body().contains("分块传输"), "解码后的主体包含第一块内容");
+            assertTrue(chunked.body().contains("无需预先知道总长度"), "包含第二块内容");
             // POST 被拒绝
             Map<String, List<String>> headers = new LinkedHashMap<>();
             headers.put("Host", List.of("127.0.0.1"));
@@ -149,6 +232,17 @@ class MinimalHttpClientTest {
             assertEquals(405, methodNotAllowed.statusCode());
         } finally {
             server.interrupt();
+        }
+    }
+
+    /** 按 1~3 字节分片写整条响应（模拟网络拆包，测试字节级读的健壮性）。 */
+    private static void writeSlowly(OutputStream out, String data) throws IOException {
+        byte[] bytes = data.getBytes(StandardCharsets.US_ASCII);
+        for (int i = 0; i < bytes.length; ) {
+            int chunk = Math.min(1 + (i % 3), bytes.length - i);
+            out.write(bytes, i, chunk);
+            out.flush();
+            i += chunk;
         }
     }
 
