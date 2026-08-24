@@ -11,7 +11,8 @@
 |----|---------|---------|
 | `packet/EthernetFrame` | 数据链路层帧头：目的/源 MAC（各 6 字节）、EtherType（2 字节） | 14 字节固定 |
 | `packet/IpHeader` | 网络层 IPv4 首部：版本(4 bit) + IHL(4 bit) 挤同一字节、总长度、**分片三件套（标识/标志/片偏移）**、TTL、协议号、源/目的 IP | 20 字节最小（IHL×4） |
-| `packet/TcpHeader` | 传输层 TCP 首部：源/目的端口、序号、确认号、**数据偏移(4 bit)+标志位(9 bit)**、窗口、**伪首部校验和** | 20 字节最小 |
+| `packet/TcpHeader` | 传输层 TCP 首部：源/目的端口、序号、确认号、**数据偏移(4 bit)+标志位(8 个)**、窗口、**伪首部校验和**、**选项字段** | 20 字节最小 |
+| `packet/TcpOption` | TCP 选项：MSS/Window Scale/SACK-Permitted/时间戳 的构造、**NOP 对齐编码**与按 Kind/Length 解析 | 变长（最多 40 字节） |
 | `packet/UdpHeader` | 传输层 UDP 首部：源/目的端口、长度、**伪首部校验和（IPv4 可选）** | 8 字节固定 |
 | `packet/Checksums` | **校验和工具（RFC 1071 反码和）**：IP 首部校验和、TCP/UDP 伪首部校验和、整体验证（反码和为 0xFFFF） | — |
 | `packet/IcmpHeader` | 网络层 ICMP 首部：**类型/代码/校验和**/标识/序号（ping 的报文） | 8 字节固定 |
@@ -122,6 +123,25 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.t
 - **窗口（16 bit）**：接收方剩余缓冲区，实现流量控制。
 
 `TcpHeader` 演示了这些字段的编码（`encode`）与按位解析（`parse`），比如 `dataOffset=6 → 第 12 字节 = 0x60`。
+
+### 2.1 TCP 选项：数据偏移装的是什么（对应 `packet/TcpOption`）
+
+基础首部只够表达端口/序号/窗口，TCP 的很多能力必须**额外协商**，参数就放在选项里：
+选项区域长度 = 数据偏移 × 4 − 20 字节，不足 4 的倍数用 NOP 填充。通用格式 `[Kind(1)][Length(1)][Value...]`（Length 含 Kind/Length 本身），EOL(0) 和 NOP(1) 是 1 字节特例。
+
+| Kind | 选项 | 长度 | 作用（面试常问） |
+|------|------|------|-----------------|
+| 2 | **MSS** | 4 | 协商最大报文段，**SYN 里必带**，双方取小。1460 = 1500(MTU) − 20(IP) − 20(TCP) |
+| 3 | Window Scale | 3 | 窗口左移 N 位放大（16 bit 不够用，最大可到 1GB） |
+| 4 | SACK-Permitted | 2 | 声明支持选择性确认（丢包只重传丢失段，不用全部重传） |
+| 5 | SACK | 变长 | 告知对端哪些段已收到（乱序到达时用） |
+| 8 | Timestamp | 10 | 算 RTT、防序号回绕（PAWS） |
+
+关键理解：
+- **数据偏移的真正作用**：它不只为「首部长度」，更决定选项区域多大——解析时先读 dataOffset，才知道后面有多少选项字节。
+- 带 MSS 的 SYN：选项 4 字节 → dataOffset=6 → 首部 24 字节（`TcpHeader.withOptions` 自动计算）。
+- 选项参与 TCP 校验和（整个首部按实际长度算），篡改选项会被接收方发现。
+- 选项区域最多 40 字节（dataOffset 4 bit 上限 15 → (15−5)×4）。
 
 ### 3. 为什么 TCP 有粘包、UDP 没有
 
@@ -385,7 +405,8 @@ DNS 把域名解析成 IP 地址（www.example.com -> 93.184.216.34），是浏�
 
 | 测试类 | 验证内容 | 不验证的内容 |
 |--------|----------|--------------|
-| `TcpHeaderTest`（6） | 编码/解析往返、SYN/ACK/FIN 标志位、数据偏移决定首部长度、标志位字节位置 | 真实网络行为 |
+| `TcpHeaderTest`（12） | 编码/解析往返、8 个标志位（含 URG/CWR/ECE）字节位置、数据偏移决定首部长度、**带选项首部（MSS/多选项/越界拒绝/选项参与校验和）** | 真实网络行为 |
+| `TcpOptionTest`（11） | MSS/WS/SACK/时间戳 构造、NOP 对齐编码、EOL 终止、多选项组合、非法长度拒绝、未知 Kind 透传 | 真实 TCP 协商 |
 | `UdpHeaderTest`（3） | 8 字节固定、大端字节序、负载长度计算 | 丢包/乱序 |
 | `IpHeaderTest`（9） | 版本+IHL 位字段、点分十进制互转、IP 每段 0~255 校验、分片三件套编解码与非法参数 | 真实路由/分片 |
 | `ChecksumTest`（11） | RFC 1071 IP 官方向量、反码和折叠、奇数长度补 0、TCP/UDP 伪首部校验和向量与整体验证、伪首部/数据参与校验 | 真实抓包校验 |
@@ -404,7 +425,7 @@ DNS 把域名解析成 IP 地址（www.example.com -> 93.184.216.34），是浏�
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 139 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 156 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -416,7 +437,7 @@ DNS 把域名解析成 IP 地址（www.example.com -> 93.184.216.34），是浏�
 
 ## ✍️ 动手练习
 
-1. 给 `TcpHeader` 增加 `URG` 标志位支持（0x20），补一个 URG 报文往返测试。
+1. 给 `TcpHeader` 补上最后一个标志位 `NS`（第 12 字节 bit0，0x0100）并演示 ECN 三次握手（SYN 带 ECE+CWR）。
 2. 用 `PacketParser` 构造一个"IP + UDP + DNS 查询"报文，断言解析出 `destinationPort=53`。
 3. 给 `FramedTcpServer` 增加协议版本号：帧头改为 `[1 字节版本][4 字节长度][内容]`，不匹配的版本直接断开（提示：改 `FrameCodec.encode/decode` 并补测试）。
 4. 用 `tcpdump -i lo port 19001` 抓包观察三次握手，对照 `TcpHeader` 的标志位。

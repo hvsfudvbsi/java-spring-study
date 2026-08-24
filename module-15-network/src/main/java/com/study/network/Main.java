@@ -1,5 +1,7 @@
 package com.study.network;
 
+import java.util.List;
+
 import com.study.network.ip.SubnetCalculator;
 import com.study.network.packet.ArpHeader;
 import com.study.network.packet.Checksums;
@@ -10,6 +12,7 @@ import com.study.network.packet.IcmpHeader;
 import com.study.network.packet.IpHeader;
 import com.study.network.packet.PacketParser;
 import com.study.network.packet.TcpHeader;
+import com.study.network.packet.TcpOption;
 import com.study.network.packet.UdpHeader;
 import com.study.network.protocol.TcpCongestionControl;
 import com.study.network.protocol.TcpStateMachine;
@@ -25,6 +28,7 @@ import com.study.network.socket.TcpStickyPacketDemo;
  *   1. TCP/UDP 协议对比表
  *   2. TCP 首部 20 字节编码与解析（含数据偏移/标志位）
  *   2.1 TCP 校验和（伪首部 + 首部 + 数据）
+ *   2.2 TCP 选项（SYN 携带 MSS=1460，数据偏移自动变大）
  *   3. UDP 首部 8 字节编码与解析（含 UDP 校验和）
  *   4. IPv4 首部编码与解析（版本/IHL/地址）
  *   4.1 IP 分片字段（标识/标志 MF/片偏移）
@@ -66,6 +70,14 @@ public class Main {
                 + Checksums.verifyTransport(srcIp, dstIp, IpHeader.PROTOCOL_TCP,
                 synWithChecksum.headerLength() + payload.length,
                 synWithChecksum.segment(payload)));
+
+        // 2.2 TCP 选项：SYN 携带 MSS=1460（三次握手里协商最大报文段，双方取小）
+        TcpHeader synWithMss = syn.withOptions(List.of(TcpOption.mss(1460)));
+        System.out.println("TCP SYN+MSS 首部 " + synWithMss.headerLength() + " 字节: " + synWithMss);
+
+        TcpHeader parsedOptions = TcpHeader.parse(synWithMss.encode());
+        System.out.println("解析回: dataOffset=" + parsedOptions.dataOffset()
+                + ", 选项=" + parsedOptions.options());
         System.out.println();
 
         // 3. UDP 首部：DNS 查询 53 端口（含 UDP 校验和，IPv4 下可选）
