@@ -7,16 +7,29 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.security.KeyStore;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.security.Signature;
+import java.security.cert.CertPath;
+import java.security.cert.CertPathValidator;
+import java.security.cert.CertificateFactory;
+import java.security.cert.PKIXParameters;
+import java.security.cert.TrustAnchor;
+import java.security.cert.X509Certificate;
 import java.security.spec.ECGenParameterSpec;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.Date;
+import java.util.List;
+import java.util.Set;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyAgreement;
@@ -26,6 +39,10 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
+import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -36,13 +53,16 @@ import org.junit.jupiter.api.Test;
  * <p>验证通过 {@code KeyPairGenerator.getInstance()} / {@code Signature.getInstance()} /
  * {@code Cipher.getInstance()} / {@code KeyAgreement.getInstance()} /
  * {@code KeyFactory.getInstance()} / {@code MessageDigest.getInstance()} /
- * {@code Mac.getInstance()} / {@code KeyGenerator.getInstance()} 等
+ * {@code Mac.getInstance()} / {@code KeyGenerator.getInstance()} /
+ * {@code CertificateFactory.getInstance()} / {@code CertPathValidator.getInstance()} /
+ * {@code KeyStore.getInstance()} 等
  * JCE 标准接口获取的算法实例均可正常使用（生成密钥、签名/验签、加密/解密等往返闭环）。
  *
  * <p>覆盖两类 Provider：
  * <ul>
  *   <li>JDK 内置（无参或 "SunEC"/"SunRsaSign"）：RSA、EC、DH、DSA、Ed25519、AES、HmacSHA256；</li>
  *   <li>BC Provider（指定 "BC"）：SM2（EC 曲线 sm2p256v1）、SM3、SM4、SM3withSM2。</li>
+ *   <li>证书/密钥库接口：CertificateFactory X.509、CertPathValidator PKIX、KeyStore PKCS12。</li>
  * </ul>
  */
 class JceProviderTest {
@@ -528,6 +548,130 @@ class JceProviderTest {
         mac.init(key);
         byte[] t2 = mac.doFinal(DATA);
         assertArrayEquals(t1, t2);
+    }
+
+    // ==================== CertificateFactory 证书工厂 ====================
+
+    /** 签发一张自签名 RSA 证书供 CertificateFactory/CertPathValidator 测试使用。 */
+    private static X509Certificate selfSignedCert() throws Exception {
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048, RANDOM);
+        KeyPair ca = kpg.generateKeyPair();
+        X500Name name = new X500Name("CN=JCE Test CA");
+        long now = System.currentTimeMillis();
+        JcaX509v3CertificateBuilder builder = new JcaX509v3CertificateBuilder(
+                name, new BigInteger(64, RANDOM),
+                new Date(now - 86_400_000L), new Date(now + 365L * 86_400_000L),
+                name, ca.getPublic());
+        return new JcaX509CertificateConverter()
+                .getCertificate(builder.build(new JcaContentSignerBuilder("SHA256withRSA").build(ca.getPrivate())));
+    }
+
+    @Test
+    @DisplayName("CertificateFactory: X.509 证书 DER 编解码往返一致")
+    void certificateFactoryDerRoundTrip() throws Exception {
+        X509Certificate cert = selfSignedCert();
+        CertificateFactory cf = CertificateFactory.getInstance("X.509");
+        X509Certificate restored = (X509Certificate) cf.generateCertificate(
+                new ByteArrayInputStream(cert.getEncoded()));
+        assertArrayEquals(cert.getEncoded(), restored.getEncoded());
+        assertEquals(cert.getSubjectX500Principal(), restored.getSubjectX500Principal());
+        assertEquals(cert.getSerialNumber(), restored.getSerialNumber());
+    }
+
+    @Test
+    @DisplayName("CertificateFactory: generateCertPath 生成 CertPath，证书列表往返一致")
+    void certificateFactoryCertPath() throws Exception {
+        X509Certificate cert = selfSignedCert();
+        CertificateFactory cf = CertificateFactory.getInstance("X.509");
+        CertPath certPath = cf.generateCertPath(List.of(cert));
+        assertEquals("X.509", certPath.getType());
+        assertEquals(1, certPath.getCertificates().size());
+        X509Certificate fromPath = (X509Certificate) certPath.getCertificates().get(0);
+        assertArrayEquals(cert.getEncoded(), fromPath.getEncoded());
+    }
+
+    @Test
+    @DisplayName("CertificateFactory: 非 X.509 编码字节流抛 CertificateException")
+    void certificateFactoryInvalidDer() throws Exception {
+        CertificateFactory cf = CertificateFactory.getInstance("X.509");
+        assertThrows(java.security.cert.CertificateException.class,
+                () -> cf.generateCertificate(new ByteArrayInputStream(new byte[] {1, 2, 3, 4})));
+    }
+
+    // ==================== CertPathValidator 证书路径验证 ====================
+
+    @Test
+    @DisplayName("CertPathValidator: PKIX 单级自签名证书信任链验证通过")
+    void certPathValidatorSelfSignedPasses() throws Exception {
+        X509Certificate ca = selfSignedCert();
+        CertificateFactory cf = CertificateFactory.getInstance("X.509");
+        CertPath path = cf.generateCertPath(List.of(ca));
+        PKIXParameters params = new PKIXParameters(Set.of(new TrustAnchor(ca, null)));
+        params.setRevocationEnabled(false);
+        CertPathValidator validator = CertPathValidator.getInstance("PKIX");
+        // 不抛异常即通过
+        validator.validate(path, params);
+    }
+
+    @Test
+    @DisplayName("CertPathValidator: PKIX 无关 TrustAnchor 验证失败抛 CertPathValidatorException")
+    void certPathValidatorWrongAnchorFails() throws Exception {
+        X509Certificate leaf = selfSignedCert();
+        X509Certificate unrelatedAnchor = selfSignedCert();
+        CertificateFactory cf = CertificateFactory.getInstance("X.509");
+        CertPath path = cf.generateCertPath(List.of(leaf));
+        PKIXParameters params = new PKIXParameters(Set.of(new TrustAnchor(unrelatedAnchor, null)));
+        params.setRevocationEnabled(false);
+        CertPathValidator validator = CertPathValidator.getInstance("PKIX");
+        assertThrows(java.security.cert.CertPathValidatorException.class,
+                () -> validator.validate(path, params));
+    }
+
+    // ==================== KeyStore 密钥库 ====================
+
+    @Test
+    @DisplayName("KeyStore: PKCS12 存储私钥+证书链，读回后字节级一致")
+    void keyStorePkcs12RoundTrip() throws Exception {
+        X509Certificate ca = selfSignedCert();
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048, RANDOM);
+        KeyPair server = kpg.generateKeyPair();
+        String alias = "test-server";
+        char[] password = "changeit".toCharArray();
+        // 写
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        ks.load(null, null);
+        ks.setKeyEntry(alias, server.getPrivate(), password,
+                new java.security.cert.Certificate[] {ca});
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ks.store(out, password);
+        byte[] p12 = out.toByteArray();
+        // 读
+        KeyStore restored = KeyStore.getInstance("PKCS12");
+        restored.load(new ByteArrayInputStream(p12), password);
+        assertArrayEquals(server.getPrivate().getEncoded(),
+                restored.getKey(alias, password).getEncoded());
+        assertArrayEquals(ca.getEncoded(), restored.getCertificate(alias).getEncoded());
+        assertArrayEquals(ca.getEncoded(), restored.getCertificateChain(alias)[0].getEncoded());
+    }
+
+    @Test
+    @DisplayName("KeyStore: PKCS12 错误口令加载抛 IOException")
+    void keyStorePkcs12WrongPassword() throws Exception {
+        KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
+        kpg.initialize(2048, RANDOM);
+        KeyPair server = kpg.generateKeyPair();
+        KeyStore ks = KeyStore.getInstance("PKCS12");
+        ks.load(null, null);
+        ks.setKeyEntry("test", server.getPrivate(), "correct".toCharArray(),
+                new java.security.cert.Certificate[] {selfSignedCert()});
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ks.store(out, "correct".toCharArray());
+        byte[] p12 = out.toByteArray();
+        KeyStore bad = KeyStore.getInstance("PKCS12");
+        assertThrows(java.io.IOException.class,
+                () -> bad.load(new ByteArrayInputStream(p12), "wrong".toCharArray()));
     }
 
     // ==================== 未知算法 & Provider 边界 ====================
