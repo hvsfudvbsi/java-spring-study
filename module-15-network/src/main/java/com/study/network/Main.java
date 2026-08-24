@@ -102,6 +102,17 @@ public class Main {
         List<SackBlock> gaps = SackBlock.gaps(1000, 4000, received);
         System.out.println("丢包推断: 发送 [1000, 4000) − SACK 块 → 需要重传 " + gaps
                 + "（只重传丢失段，不用全部重发）");
+
+        // 2.4 ECN 三次握手：SYN+ECE+CWR（显式拥塞通知，RFC 3168）
+        TcpHeader synEcn = new TcpHeader(12345, 80, 1000, 0,
+                5, false, true, false, false, false, false, true, true, 65535, 0, 0);
+        System.out.println("ECN 握手① SYN+ECE+CWR: " + synEcn);
+        TcpHeader synAckEcn = new TcpHeader(80, 12345, 0, 1001,
+                5, true, true, false, false, false, false, false, true, 65535, 0, 0);
+        System.out.println("ECN 握手② SYN+ACK+ECE: " + synAckEcn);
+        TcpHeader ackEcn = new TcpHeader(12345, 80, 1001, 0,
+                5, true, false, false, false, false, false, false, false, 65535, 0, 0);
+        System.out.println("ECN 握手③ ACK（双方确认支持 ECN，中间路由器可打 CE 标记）: " + ackEcn);
         System.out.println();
 
         // 3. UDP 首部：DNS 查询 53 端口（含 UDP 校验和，IPv4 下可选）

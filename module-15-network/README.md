@@ -509,7 +509,7 @@ close()       <────────────────────  读
 
 | 测试类 | 验证内容 | 不验证的内容 |
 |--------|----------|--------------|
-| `TcpHeaderTest`（12） | 编码/解析往返、8 个标志位（含 URG/CWR/ECE）字节位置、数据偏移决定首部长度、**带选项首部（MSS/多选项/越界拒绝/选项参与校验和）** | 真实网络行为 |
+| `TcpHeaderTest`（14） | 编码/解析往返、**9 个标志位（含 URG/CWR/ECE/NS）字节位置**、数据偏移决定首部长度、**带选项首部（MSS/多选项/越界拒绝/选项参与校验和）** | 真实网络行为 |
 | `TcpOptionTest`（18） | MSS/WS/SACK/时间戳 构造、NOP 对齐编码、EOL 终止、多选项组合、非法长度拒绝、未知 Kind 透传、**SACK 块（单块/多块/字节布局/序号回绕/MSS 组合上限/非法构造与报文拒绝）** | 真实 TCP 协商 |
 | `SackBlockTest`（10） | 区间语义（右开/回绕）、**丢包区间推断 gaps**（中间洞/多洞乱序/全丢/全覆盖/重叠合并/范围外忽略/回绕范围/空范围与非法参数） | 真实网络时序 |
 | `UdpHeaderTest`（3） | 8 字节固定、大端字节序、负载长度计算 | 丢包/乱序 |
@@ -524,9 +524,9 @@ close()       <────────────────────  读
 | `HttpRequestTest`（10） | 请求行/头部/请求体往返、POST+Content-Length、**多值头（多个 Cookie 往返/重复头追加/大小写不敏感读取）**、LF 容错、顺序保持、非法报文拒绝 | 真实浏览器/服务器 |
 | `HttpResponseTest`（11） | 状态行（含空格原因短语）往返、状态码语义/类别、自动补原因短语、2xx 判断、非法状态行拒绝、body 含换行、**多值头（多个 Set-Cookie 各占一行/顺序追加/header 取第一个）**、**notModified 工厂（ETag/304）**、withHeader 不可变拷贝 | 真实浏览器/服务器 |
 | `TransportProtocolTest`（4） | TCP/UDP 属性与首部长度对比、协议号反查 | — |
-| `TcpStateMachineTest`（27） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、**RST 连接重置（拒绝/重置/忽略）**、**半开连接检测（SYN 重传超时/计数重置/非法状态）**、**keep-alive 假死检测（探测超时/对端响应重置/非法状态）**、非法转换拒绝 | 真实网络时序 |
+| `TcpStateMachineTest`（31） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、**RST 连接重置（拒绝/重置/忽略）**、**半开连接检测（SYN 重传超时/计数重置/非法状态）**、**keep-alive 假死检测（IDLE_TIMEOUT 进入探测/探测超时/对端响应退出探测/非法状态）**、非法转换拒绝 | 真实网络时序 |
 | `SubnetCalculatorTest`（15） | 掩码转换、网络/广播地址、主机范围、可用主机数（含 /30、/31、/32 边界）、归属判断、等分子网 | 真实路由表 |
-| `TcpCongestionControlTest`（13） | 慢启动指数增长、拥塞避免线性增长、超时重置、快重传/快恢复、有效窗口 min(cwnd, rwnd)、参数校验 | 真实网络拥塞 |
+| `TcpCongestionControlTest`（19） | 慢启动指数增长、拥塞避免线性增长、超时重置、快重传/快恢复、有效窗口 min(cwnd, rwnd)、参数校验、**SACK 精细化重传（只重传块空隙/全覆盖无重传）**、**ssthresh 手动设置**、**超时后阈值翻倍加速恢复** | 真实网络拥塞 |
 | `SocketIntegrationTest`（4） | **真实回环** TCP/UDP 回显、粘包 vs 有边界 | 跨主机网络 |
 | `MinimalHttpClientTest`（9） | **真实回环** GET 往返（按 Content-Length 收 body）、**拆包分 5 片收齐**、无 Content-Length 读到 EOF、**chunked（单块/多块十六进制大小/分片写拆包/trailer 跳过/CL+TE 走私拒绝）**、**MinimalHttpServer 配套 200/404/405/chunked** | 跨主机网络、公网站点 |
 | `HttpConnectionTest`（10） | **真实回环 Keep-Alive 复用**：连发 3 请求切分正确、Connection: close 后不可复用、HTTP/1.0 无长度 EOF 不可复用、chunked 后仍可继续发、MinimalHttpServer 配套 4 请求同一连接、**gzip 解压**、**管线化 3 请求一次写出**、**重定向跟随/超限/跨主机拒绝** | 跨主机网络、公网站点 |
@@ -534,7 +534,7 @@ close()       <────────────────────  读
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 217 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 229 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -546,16 +546,16 @@ close()       <────────────────────  读
 
 ## ✍️ 动手练习
 
-1. 给 `TcpHeader` 补上最后一个标志位 `NS`（第 12 字节 bit0，0x0100）并演示 ECN 三次握手（SYN 带 ECE+CWR）。
+1. 给 `TcpCongestionControl` 增加 **ECN 响应**：收到带 ECE 标志的数据包（中间路由器打 CE 标记）时，把 cwnd 减半（而不是等丢包才反应），并回 CWR 标志——ECN 的价值是「拥塞信号提前到达，不必靠丢包感知」，补测试。
 2. 用 `PacketParser` 构造一个"IP + UDP + DNS 查询"报文，断言解析出 `destinationPort=53`。
 3. 给 `FramedTcpServer` 增加协议版本号：帧头改为 `[1 字节版本][4 字节长度][内容]`，不匹配的版本直接断开（提示：改 `FrameCodec.encode/decode` 并补测试）。
 4. 用 `tcpdump -i lo port 19001` 抓包观察三次握手，对照 `TcpHeader` 的标志位。
-5. 把 keep-alive 拆成两个事件：`IDLE_TIMEOUT`（空闲超时，进入探测阶段）+ `PROBE_TIMEOUT`（探测无响应），更贴近真实实现（先空闲后探测），补测试。
+5. 给 `TcpStateMachine` 增加探测**间隔**参数：`IDLE_TIMEOUT` 后按固定间隔（如 75s，Linux 默认）周期性触发 `PROBE_TIMEOUT`，而不是手动连发（提示：记录上次探测时间，未到间隔时忽略）。
 6. 给 `IcmpHeader` 增加校验和计算：`checksum = 反码和(首部 + 数据)`，构造合法校验和并验证往返一致。
 7. 给 `SubnetCalculator` 增加私有地址判断（`isPrivateIp`）：10.0.0.0/8、172.16.0.0/12、192.168.0.0/16 返回 true，补测试。
-8. 给 `TcpCongestionControl` 增加 `ssthresh` 手动设置方法（模拟丢包前人为调低阈值），验证慢启动提前转入拥塞避免。
+8. 给 `TcpCongestionControl` 增加**初始慢启动窗口**（RFC 5681 的 IW=10）：构造参数支持 `initialCwnd=10`，并验证慢启动从 10 开始翻倍。
 9. 用 `SubnetCalculator.split` 把 10.0.0.0/8 等分成 256 个 /16，验证第一个是 10.0.0.0/16、最后一个是 10.255.0.0/16。
-10. 给 `TcpCongestionControl` 增加慢启动阈值翻倍（RFC 5681 的 exponential increase）：`ssthresh = min(ssthresh*2, cwnd)`，超时恢复后加速追回带宽。
+10. 给 `TcpCongestionControl` 增加 **CUBIC 拥塞控制**（Linux 默认算法）：超时后 cwnd 按三次函数 `(t-K)³` 快速回升，对比 Reno 的线性恢复（提示：新增 `Phase` 或独立类，保留 Reno 实现）。
 11. 用 `tcpdump`/Wireshark 抓一个真实 TCP 包，把 IP 首部和 TCP 段的字节拷进测试，用 `Checksums` 验证校验和是否为 0xFFFF（理解校验和的实际用途）。
 12. 给 `IpHeader` 增加「分片重组」模拟：给定同一标识的多个分片（MF/片偏移不同），按片偏移拼接回原数据报并验证长度，补测试。
 13. 给 `ArpHeader` 增加「免费 ARP」构造助手（`gratuitous()`：发送方=目标，opcode=1），并用 `PacketParser` 验证能解析回同样的 IP->MAC 映射。
@@ -565,7 +565,7 @@ close()       <────────────────────  读
 17. 给 `MinimalHttpClient` 增加 **HTTPS 支持**：把底层 `Socket` 换成 `SSLSocketFactory` 创建的 TLS 套接字（对照 `tls/TlsHandshakeDemo`），验证 `https://` 连接。
 18. 给 `HttpConnection` 增加**连接池**：维护一组 `HttpConnection` 供并发请求复用（如 `ConcurrentLinkedQueue` 空闲连接），用完归还、坏连接丢弃重连（提示：对照 module-12 线程池思路）。
 19. 给 `HttpConnection` 增加**跨主机重定向**：`Location` 指向不同 host 时新建连接继续跟随（提示：解析绝对 URL 的 host/port，用 `HttpConnection.connect` 新连接发起）。
-20. 把 SACK 接入 `TcpCongestionControl`：收到重复 ACK 时不再整窗口快重传，而是用 `SackBlock.gaps` 的返回区间**只标记丢失段重传**，补测试（对照当前全窗口快重传的行为差异）。
+20. 给 `TcpCongestionControl` 增加**拥塞窗口审计**：记录 cwnd/ssthresh 每次变化的轨迹（时间序列），供画图对比 Reno 与 CUBIC 的恢复曲线（提示：加 `List<Snapshot>` 日志，演示时导出）。
 
 ## 📄 关联模块
 

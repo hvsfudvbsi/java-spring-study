@@ -77,7 +77,8 @@ public class TcpStateMachine {
         RECV_FIN,        // 收到 FIN
         RECV_RST,        // 收到 RST（连接重置：端口未监听/对端强杀/半开连接）
         RETRANSMIT_TIMEOUT, // 重传超时（RTO）：等待握手应答超时，指数退避重发 SYN/SYN+ACK
-        PROBE_TIMEOUT,   // keep-alive 探测超时：连接空闲后探测对端，连续 N 次无响应判定假死
+        IDLE_TIMEOUT,    // keep-alive 空闲超时：连接一段时间无数据，进入探测阶段（先空闲后探测）
+        PROBE_TIMEOUT,   // keep-alive 探测超时：探测对端无响应，连续 N 次判定假死
         TIMEOUT_2MSL     // TIME_WAIT 超时（2 倍报文最大生存时间）
     }
 
@@ -90,6 +91,7 @@ public class TcpStateMachine {
     private TcpState state;
     private int retransmitCount; // 当前等待握手应答期间的 RTO 重试次数
     private int probeFailCount;  // 连续 keep-alive 探测无响应次数
+    private boolean probing;     // 是否处于 keep-alive 探测阶段（IDLE_TIMEOUT 后为 true）
 
     public TcpStateMachine(TcpState initialState) {
         this.state = initialState;
@@ -109,6 +111,11 @@ public class TcpStateMachine {
         return probeFailCount;
     }
 
+    /** 是否处于 keep-alive 探测阶段（IDLE_TIMEOUT 空闲超时后为 true，收到对端报文回到 false）。 */
+    public boolean isProbing() {
+        return probing;
+    }
+
     /**
      * 应用一个事件并返回新状态；非法转换抛 IllegalStateException。
      * 状态机保证：任何状态只能按 TCP 协议规定的方式跳转。
@@ -116,6 +123,9 @@ public class TcpStateMachine {
     public TcpState apply(TcpEvent event) {
         if (event == TcpEvent.RETRANSMIT_TIMEOUT) {
             return handleRetransmitTimeout();
+        }
+        if (event == TcpEvent.IDLE_TIMEOUT) {
+            return handleIdleTimeout();
         }
         if (event == TcpEvent.PROBE_TIMEOUT) {
             return handleProbeTimeout();
@@ -131,11 +141,26 @@ public class TcpStateMachine {
                 || next == TcpState.ESTABLISHED || next == TcpState.CLOSED) {
             retransmitCount = 0;
         }
-        // keep-alive 探测计数：进入 ESTABLISHED（握手成功）或收到对端任何报文时清零
+        // keep-alive：进入 ESTABLISHED（握手成功）或收到对端任何报文时，退出探测并清零计数
         if (next == TcpState.ESTABLISHED || isPeerResponse(event)) {
+            probing = false;
             probeFailCount = 0;
         }
         return next;
+    }
+
+    /**
+     * keep-alive 空闲超时：连接已建立但一段时间没有任何数据（如 HTTP 长连接的空闲期），
+     * 进入**探测阶段**——后续发 keep-alive 探测包确认对端还活着。状态本身不变（还是 ESTABLISHED）。
+     * 真实实现：空闲阈值（如 Linux 默认 7200s）一到，从发送窗口置为探测状态。
+     */
+    private TcpState handleIdleTimeout() {
+        if (state != TcpState.ESTABLISHED) {
+            throw new IllegalStateException(
+                    "空闲超时只在 ESTABLISHED 状态发生（连接已建立才需要保活），当前: " + state);
+        }
+        probing = true;
+        return TcpState.ESTABLISHED; // 进入探测阶段，等待后续探测结果
     }
 
     /**
@@ -158,17 +183,19 @@ public class TcpStateMachine {
     }
 
     /**
-     * keep-alive 假死检测：连接已建立（ESTABLISHED）后探测对端。
+     * keep-alive 探测超时：ESTABLISHED 状态下探测对端无响应（应配合 {@link #handleIdleTimeout}
+     * 先进入探测阶段；直接探测也允许，语义等同）。
      * 未到上限：状态不变（继续发探测），探测失败计数 +1；
      * 连续 MAX_PROBES 次无响应：判定对端假死（进程崩溃/网络断开），直接 CLOSED 释放资源。
      * 真实 Linux 默认探测 9 次（每次间隔 75s），本类简化为 3 次；
-     * 期间收到对端任何报文（RECV_*）都会把计数清零（对端还活着）。
+     * 期间收到对端任何报文（RECV_*）都会退出探测并清零计数（对端还活着）。
      */
     private TcpState handleProbeTimeout() {
         if (state != TcpState.ESTABLISHED) {
             throw new IllegalStateException(
                     "keep-alive 探测只在 ESTABLISHED 状态进行（连接已建立才需要保活），当前: " + state);
         }
+        probing = true; // 开始/继续探测
         probeFailCount++;
         if (probeFailCount >= MAX_PROBES) {
             probeFailCount = 0;
@@ -291,11 +318,13 @@ public class TcpStateMachine {
         System.out.println("  被动方 " + peer.state() + " --RECV_ACK--> " + peer.apply(TcpEvent.RECV_ACK));
     }
 
-    /** 打印 keep-alive 假死检测演示（供 Main 调用）：连接空闲后连续探测无响应判定假死。 */
+    /** 打印 keep-alive 假死检测演示（供 Main 调用）：先空闲超时进入探测，再连续探测无响应判定假死。 */
     public static void printKeepAliveDemo() {
         System.out.println("================ TCP 状态机：keep-alive 假死检测 ================");
-        System.out.println("  场景：连接已建立但对端进程崩溃/网络断开——空闲后发探测包，连续无响应判定假死");
+        System.out.println("  场景：连接已建立但对端进程崩溃/网络断开——空闲超时进入探测，连续无响应判定假死");
         TcpStateMachine conn = new TcpStateMachine(TcpState.ESTABLISHED);
+        System.out.println("    IDLE_TIMEOUT（空闲超时）: " + conn.apply(TcpEvent.IDLE_TIMEOUT)
+                + "，进入探测阶段（isProbing=" + conn.isProbing() + "）");
         for (int i = 1; i <= MAX_PROBES; i++) {
             TcpState result = conn.apply(TcpEvent.PROBE_TIMEOUT);
             String note = result == TcpState.CLOSED

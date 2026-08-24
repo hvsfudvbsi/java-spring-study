@@ -1,5 +1,9 @@
 package com.study.network.protocol;
 
+import com.study.network.packet.SackBlock;
+
+import java.util.List;
+
 /**
  * TCP 拥塞控制模拟（TCP Reno）——面试必问：TCP 为什么既要有流量控制又要有拥塞控制？
  *
@@ -65,6 +69,7 @@ public class TcpCongestionControl {
 
     private int cwnd;              // 拥塞窗口（单位：MSS）
     private int ssthresh;          // 慢启动阈值（单位：MSS）
+    private final int initialSsthresh; // 初始慢启动阈值（加速恢复时追回的上限）
     private final int rwnd;        // 接收窗口（单位：MSS，模拟中固定不变）
     private Phase phase;
     private int duplicateAckCount; // 连续重复 ACK 计数
@@ -81,6 +86,7 @@ public class TcpCongestionControl {
         }
         this.cwnd = initialCwnd;
         this.ssthresh = initialSsthresh;
+        this.initialSsthresh = initialSsthresh;
         this.rwnd = rwnd;
         this.phase = Phase.SLOW_START;
     }
@@ -146,6 +152,52 @@ public class TcpCongestionControl {
             phase = Phase.CONGESTION_AVOIDANCE;
         }
         duplicateAckCount = 0;
+    }
+
+    /**
+     * 收到重复 ACK + SACK 块（乱序确认）：用 {@link SackBlock#gaps} 从发送范围内
+     * 精确算出**需要重传的段**（块之间的空隙），而不是整窗口重传——
+     * 这就是 SACK 对快重传的精细化：只补丢失的，不重发已收到的。
+     * 拥塞窗口行为与 {@link #onDuplicateAck} 完全一致（第 3 个重复 ACK 进快恢复）。
+     *
+     * @param sentStart 发送范围左边界（32 位序号）
+     * @param sentEnd   发送范围右边界（不含）
+     * @param blocks    接收方回报的 SACK 块（乱序/可重叠/可在发送范围外）
+     * @return 需要重传的段列表（SackBlock.gaps 的结果，升序）
+     */
+    public List<SackBlock> onDuplicateAckWithSack(long sentStart, long sentEnd,
+                                                  List<SackBlock> blocks) {
+        List<SackBlock> lostSegments = SackBlock.gaps(sentStart, sentEnd, blocks);
+        onDuplicateAck(); // 窗口调整逻辑与普通重复 ACK 相同
+        return lostSegments;
+    }
+
+    /**
+     * 手动设置慢启动阈值（模拟丢包前人为调低阈值）：
+     * 设置后若 cwnd 已超过新阈值，立即收敛到阈值并转入拥塞避免（慢启动提前结束）。
+     */
+    public void setSsthresh(int newSsthresh) {
+        if (newSsthresh < 1) {
+            throw new IllegalArgumentException("ssthresh 必须为正整数: " + newSsthresh);
+        }
+        this.ssthresh = newSsthresh;
+        if (cwnd >= ssthresh) {
+            cwnd = ssthresh;
+            phase = Phase.CONGESTION_AVOIDANCE;
+        }
+    }
+
+    /**
+     * 慢启动阈值翻倍（加速恢复）：超时/快重传把 ssthresh 减半后，每 RTT 调用一次
+     * 把 ssthresh 翻倍（最多恢复到初始阈值），配合慢启动的指数增长快速追回带宽——
+     * 避免长期停留在减半后的低阈值、恢复过慢。
+     */
+    public void onSsthreshRecovery() {
+        ssthresh = Math.min(ssthresh * 2, initialSsthresh);
+        if (phase == Phase.SLOW_START && cwnd >= ssthresh) {
+            cwnd = ssthresh;
+            phase = Phase.CONGESTION_AVOIDANCE;
+        }
     }
 
     /** 有效发送窗口 = min(cwnd, rwnd)：两者取小，同时受网络与接收方限制。 */

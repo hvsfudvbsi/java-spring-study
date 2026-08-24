@@ -6,7 +6,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * TCP 状态机测试：验证三次握手、四次挥手、同时关闭和非法转换拒绝。
@@ -308,6 +310,56 @@ class TcpStateMachineTest {
                 () -> new TcpStateMachine(TcpState.CLOSED).apply(TcpEvent.PROBE_TIMEOUT));
         assertThrows(IllegalStateException.class,
                 () -> new TcpStateMachine(TcpState.TIME_WAIT).apply(TcpEvent.PROBE_TIMEOUT));
+    }
+
+    // ---- keep-alive 拆分：IDLE_TIMEOUT（先空闲后探测） ----
+
+    @Test
+    @DisplayName("IDLE_TIMEOUT：空闲超时进入探测阶段，状态仍是 ESTABLISHED")
+    void idleTimeoutEntersProbing() {
+        TcpStateMachine conn = new TcpStateMachine(TcpState.ESTABLISHED);
+        assertFalse(conn.isProbing(), "刚建立连接时不在探测阶段");
+        assertEquals(TcpState.ESTABLISHED, conn.apply(TcpEvent.IDLE_TIMEOUT),
+                "空闲超时不改变连接状态");
+        assertTrue(conn.isProbing(), "空闲超时后进入探测阶段");
+    }
+
+    @Test
+    @DisplayName("先空闲后探测：IDLE_TIMEOUT 后连续探测无响应判定假死")
+    void idleThenProbeSequence() {
+        TcpStateMachine conn = new TcpStateMachine(TcpState.ESTABLISHED);
+        conn.apply(TcpEvent.IDLE_TIMEOUT); // 空闲超时，进入探测
+        for (int i = 0; i < TcpStateMachine.MAX_PROBES - 1; i++) {
+            assertEquals(TcpState.ESTABLISHED, conn.apply(TcpEvent.PROBE_TIMEOUT));
+        }
+        assertEquals(TcpState.CLOSED, conn.apply(TcpEvent.PROBE_TIMEOUT),
+                "探测阶段连续无响应判定假死");
+    }
+
+    @Test
+    @DisplayName("探测阶段收到对端报文：退出探测并清零计数（对端还活着）")
+    void peerResponseExitsProbing() {
+        TcpStateMachine conn = new TcpStateMachine(TcpState.ESTABLISHED);
+        conn.apply(TcpEvent.IDLE_TIMEOUT);
+        conn.apply(TcpEvent.PROBE_TIMEOUT);
+        conn.apply(TcpEvent.PROBE_TIMEOUT);
+        assertTrue(conn.isProbing());
+        assertEquals(2, conn.probeFailCount());
+
+        assertEquals(TcpState.CLOSE_WAIT, conn.apply(TcpEvent.RECV_FIN));
+        assertFalse(conn.isProbing(), "收到对端报文，退出探测阶段");
+        assertEquals(0, conn.probeFailCount());
+    }
+
+    @Test
+    @DisplayName("IDLE_TIMEOUT 只在 ESTABLISHED 合法：其余状态都拒绝")
+    void idleIllegalOutsideEstablished() {
+        assertThrows(IllegalStateException.class,
+                () -> new TcpStateMachine(TcpState.SYN_SENT).apply(TcpEvent.IDLE_TIMEOUT));
+        assertThrows(IllegalStateException.class,
+                () -> new TcpStateMachine(TcpState.LISTEN).apply(TcpEvent.IDLE_TIMEOUT));
+        assertThrows(IllegalStateException.class,
+                () -> new TcpStateMachine(TcpState.CLOSED).apply(TcpEvent.IDLE_TIMEOUT));
     }
 
     @Test

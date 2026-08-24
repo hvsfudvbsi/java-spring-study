@@ -27,7 +27,11 @@ import java.util.List;
  *
  * 标志位在报文中的精确位置（第 12 字节起 16 bit）：
  *   数据偏移(4) | 保留(3) | NS(1) | CWR(1) | ECE(1) | URG(1) | ACK(1) | PSH(1) | RST(1) | SYN(1) | FIN(1)
- * 本类实现除 NS 外的 8 个标志位（NS 极少使用，留作练习）。
+ * 其中 NS/CWR/ECE 在 ECN（显式拥塞通知，RFC 3168）里配合使用：
+ * - ECE(1)：ECN-Echo，一端声明支持 ECN（SYN 里带）或告知对端收到了 CE 标记（拥塞经历）；
+ * - CWR(1)：Congestion Window Reduced，收到 ECE 后发送方已缩小拥塞窗口并告知对端；
+ * - NS(1)：Nonce Sum，ECN 防欺骗扩展（极少使用），第 12 字节的最低位。
+ * 本类实现全部 9 个标志位（NS 也在内）。
  *
  * 关键位字段：
  * - 数据偏移（Data Offset，4 bit）：TCP 首部长度 ÷ 4。最小 5 → 20 字节；
@@ -46,6 +50,8 @@ public class TcpHeader {
     /** 无选项时 TCP 首部固定 20 字节 */
     public static final int FIXED_HEADER_LENGTH = 20;
 
+    /** 标志位：NS（ECN Nonce Sum，第 12 字节 bit0，防 ECN 欺骗） */
+    private static final int FLAG_NS = 0x01;
     /** 标志位：CWR（拥塞窗口减小，ECN 用） */
     private static final int FLAG_CWR = 0x80;
     /** 标志位：ECE（ECN-Echo，ECN 用） */
@@ -81,6 +87,7 @@ public class TcpHeader {
     private final boolean urg;     // URG 紧急标志（与紧急指针配合）
     private final boolean cwr;     // CWR 拥塞窗口减小（ECN）
     private final boolean ece;     // ECE ECN-Echo（ECN）
+    private final boolean ns;      // NS ECN Nonce Sum（第 12 字节 bit0，防欺骗）
 
     // ---- 后 4 字节 ----
     private final int windowSize;      // 16 bit 窗口
@@ -90,34 +97,45 @@ public class TcpHeader {
     // ---- 选项 ----
     private final List<TcpOption> options; // 20 字节之后的可选字段
 
-    /** 经典 5 标志位构造（URG/CWR/ECE 不置位，无选项）。 */
+    /** 经典 5 标志位构造（URG/CWR/ECE/NS 不置位，无选项）。 */
     public TcpHeader(int sourcePort, int destinationPort,
                      long sequenceNumber, long acknowledgmentNumber,
                      int dataOffset, boolean ack, boolean syn, boolean fin,
                      boolean psh, boolean rst, int windowSize,
                      int checksum, int urgentPointer) {
         this(sourcePort, destinationPort, sequenceNumber, acknowledgmentNumber,
-                dataOffset, ack, syn, fin, psh, rst, false, false, false,
+                dataOffset, ack, syn, fin, psh, rst, false, false, false, false,
                 windowSize, checksum, urgentPointer, List.of());
     }
 
-    /** 完整 8 标志位构造（无选项）。 */
+    /** 完整 8 标志位构造（无 NS，无选项）。 */
     public TcpHeader(int sourcePort, int destinationPort,
                      long sequenceNumber, long acknowledgmentNumber,
                      int dataOffset, boolean ack, boolean syn, boolean fin,
                      boolean psh, boolean rst, boolean urg, boolean cwr, boolean ece,
                      int windowSize, int checksum, int urgentPointer) {
         this(sourcePort, destinationPort, sequenceNumber, acknowledgmentNumber,
-                dataOffset, ack, syn, fin, psh, rst, urg, cwr, ece,
+                dataOffset, ack, syn, fin, psh, rst, urg, cwr, ece, false,
                 windowSize, checksum, urgentPointer, List.of());
     }
 
-    /** 完整构造（含选项）：dataOffset 必须装得下选项区域。 */
+    /** 完整 9 标志位构造（含 NS，无选项）。 */
+    public TcpHeader(int sourcePort, int destinationPort,
+                     long sequenceNumber, long acknowledgmentNumber,
+                     int dataOffset, boolean ack, boolean syn, boolean fin,
+                     boolean psh, boolean rst, boolean urg, boolean cwr, boolean ece,
+                     boolean ns, int windowSize, int checksum, int urgentPointer) {
+        this(sourcePort, destinationPort, sequenceNumber, acknowledgmentNumber,
+                dataOffset, ack, syn, fin, psh, rst, urg, cwr, ece, ns,
+                windowSize, checksum, urgentPointer, List.of());
+    }
+
+    /** 完整构造（含 NS 与选项）：dataOffset 必须装得下选项区域。 */
     private TcpHeader(int sourcePort, int destinationPort,
                       long sequenceNumber, long acknowledgmentNumber,
                       int dataOffset, boolean ack, boolean syn, boolean fin,
                       boolean psh, boolean rst, boolean urg, boolean cwr, boolean ece,
-                      int windowSize, int checksum, int urgentPointer,
+                      boolean ns, int windowSize, int checksum, int urgentPointer,
                       List<TcpOption> options) {
         int optionsLength = TcpOption.totalLength(options);
         int minDataOffset = 5 + optionsLength / 4;
@@ -139,6 +157,7 @@ public class TcpHeader {
         this.urg = urg;
         this.cwr = cwr;
         this.ece = ece;
+        this.ns = ns;
         this.windowSize = windowSize;
         this.checksum = checksum;
         this.urgentPointer = urgentPointer;
@@ -150,7 +169,7 @@ public class TcpHeader {
         int optionsLength = TcpOption.totalLength(options);
         int newDataOffset = 5 + optionsLength / 4;
         return new TcpHeader(sourcePort, destinationPort, sequenceNumber, acknowledgmentNumber,
-                newDataOffset, ack, syn, fin, psh, rst, urg, cwr, ece,
+                newDataOffset, ack, syn, fin, psh, rst, urg, cwr, ece, ns,
                 windowSize, checksum, urgentPointer, options);
     }
 
@@ -176,8 +195,8 @@ public class TcpHeader {
         writeInt(bytes, 4, sequenceNumber);
         writeInt(bytes, 8, acknowledgmentNumber);
 
-        // 第 12 字节：数据偏移(4 bit) | 保留(3 bit) + NS(1 bit)=0
-        bytes[12] = (byte) ((dataOffset & 0x0F) << 4);
+        // 第 12 字节：数据偏移(4 bit) | 保留(3 bit) + NS(1 bit)
+        bytes[12] = (byte) (((dataOffset & 0x0F) << 4) | (ns ? FLAG_NS : 0));
         // 第 13 字节：8 个标志位
         int flags = 0;
         if (cwr) flags |= FLAG_CWR;
@@ -233,6 +252,8 @@ public class TcpHeader {
                     "TCP 首部声明 " + headerLength + " 字节（dataOffset=" + dataOffset
                             + "），但报文剩余 " + (bytes.length - offset));
         }
+        // 第 12 字节 bit0：NS 标志（ECN Nonce Sum）
+        boolean ns = (bytes[offset + 12] & FLAG_NS) != 0;
         // 第 13 字节：8 个标志位
         int flags = bytes[offset + 13] & 0xFF;
         boolean cwr = (flags & FLAG_CWR) != 0;
@@ -253,7 +274,7 @@ public class TcpHeader {
                 headerLength - FIXED_HEADER_LENGTH);
 
         return new TcpHeader(sourcePort, destinationPort, seq, ackNum,
-                dataOffset, ack, syn, fin, psh, rst, urg, cwr, ece,
+                dataOffset, ack, syn, fin, psh, rst, urg, cwr, ece, ns,
                 windowSize, checksum, urgentPointer, options);
     }
 
@@ -276,7 +297,7 @@ public class TcpHeader {
     /** 返回校验和已填好的一份拷贝（校验和 = computeChecksum 的结果），可直接发送。 */
     public TcpHeader withValidChecksum(int sourceIp, int destinationIp, byte[] payload) {
         return new TcpHeader(sourcePort, destinationPort, sequenceNumber, acknowledgmentNumber,
-                dataOffset, ack, syn, fin, psh, rst, urg, cwr, ece, windowSize,
+                dataOffset, ack, syn, fin, psh, rst, urg, cwr, ece, ns, windowSize,
                 computeChecksum(sourceIp, destinationIp, payload), urgentPointer, options);
     }
 
@@ -380,6 +401,10 @@ public class TcpHeader {
         return ece;
     }
 
+    public boolean ns() {
+        return ns;
+    }
+
     public int windowSize() {
         return windowSize;
     }
@@ -405,7 +430,7 @@ public class TcpHeader {
                 ", sequenceNumber=" + sequenceNumber +
                 ", acknowledgmentNumber=" + acknowledgmentNumber +
                 ", dataOffset=" + dataOffset + " (" + headerLength() + " 字节)" +
-                ", flags[CWR=" + cwr + ", ECE=" + ece + ", URG=" + urg +
+                ", flags[NS=" + ns + ", CWR=" + cwr + ", ECE=" + ece + ", URG=" + urg +
                 ", ACK=" + ack + ", PSH=" + psh + ", RST=" + rst +
                 ", SYN=" + syn + ", FIN=" + fin + "]" +
                 (options.isEmpty() ? "" : ", options=" + options) +

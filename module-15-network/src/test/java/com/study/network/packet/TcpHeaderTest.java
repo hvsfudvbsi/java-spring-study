@@ -137,6 +137,34 @@ class TcpHeaderTest {
                 && parsedAll.syn() && parsedAll.fin());
     }
 
+    // ---- NS 标志位（第 9 个标志，ECN Nonce） ----
+
+    @Test
+    @DisplayName("NS 标志：第 12 字节 bit0（0x01），与数据偏移共存于同一字节")
+    void nsFlag() {
+        // NS 在第 12 字节最低位：dataOffset=5 时字节 = 0x50 | 0x01 = 0x51
+        TcpHeader ns = new TcpHeader(1, 2, 0, 0,
+                5, false, false, false, false, false, false, false, false, true, 0, 0, 0);
+        assertEquals(0x51, ns.encode()[12] & 0xFF, "dataOffset(0x50) + NS(0x01)");
+        TcpHeader parsed = TcpHeader.parse(ns.encode());
+        assertTrue(parsed.ns(), "NS 标志应为 true");
+        assertEquals(5, parsed.dataOffset(), "NS 不影响数据偏移");
+    }
+
+    @Test
+    @DisplayName("9 个标志全置位：第 12 字节 0x51、第 13 字节 0xFF，往返一致")
+    void allNineFlags() {
+        TcpHeader all = new TcpHeader(1, 2, 0, 0,
+                5, true, true, true, true, true, true, true, true, true, 0, 0, 0);
+        byte[] bytes = all.encode();
+        assertEquals(0x51, bytes[12] & 0xFF, "dataOffset + NS");
+        assertEquals(0xFF, bytes[13] & 0xFF, "CWR ECE URG ACK PSH RST SYN FIN");
+        TcpHeader parsed = TcpHeader.parse(bytes);
+        assertTrue(parsed.ns() && parsed.cwr() && parsed.ece() && parsed.urg()
+                && parsed.ack() && parsed.psh() && parsed.rst()
+                && parsed.syn() && parsed.fin());
+    }
+
     // ---- TCP 选项 ----
 
     @Test
