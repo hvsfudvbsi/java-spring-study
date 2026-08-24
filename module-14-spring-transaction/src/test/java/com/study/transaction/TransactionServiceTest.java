@@ -7,6 +7,7 @@ import com.study.transaction.service.AccountService;
 import com.study.transaction.service.TransactionPropagationService;
 import com.study.transaction.service.TransactionWorker;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -43,6 +44,7 @@ class TransactionServiceTest {
     }
 
     @Test
+    @DisplayName("转账成功：两个账户余额同时更新并提交（100→70 与 50→80）")
     void transferShouldCommitBothAccountUpdates() {
         accountService.transfer(1L, 2L, new BigDecimal("30.00"));
 
@@ -51,6 +53,7 @@ class TransactionServiceTest {
     }
 
     @Test
+    @DisplayName("转账目标不存在：抛异常且余额不变（事务回滚）")
     void transferShouldRollbackWhenRecipientDoesNotExist() {
         assertThatThrownBy(() -> accountService.transfer(1L, 999L, new BigDecimal("30.00")))
                 .isInstanceOf(IllegalStateException.class)
@@ -61,6 +64,7 @@ class TransactionServiceTest {
     }
 
     @Test
+    @DisplayName("REQUIRED：内层异常使外层一并回滚（同一事务）")
     void requiredShouldRollbackOuterAndInnerWorkTogether() {
         assertThatThrownBy(propagationService::requiredRollback)
                 .isInstanceOf(IllegalStateException.class)
@@ -70,6 +74,7 @@ class TransactionServiceTest {
     }
 
     @Test
+    @DisplayName("REQUIRES_NEW：外层回滚但内层独立事务已提交保留")
     void requiresNewShouldKeepInnerCommitAfterOuterRollback() {
         assertThatThrownBy(propagationService::requiresNewOuterRollback)
                 .isInstanceOf(IllegalStateException.class)
@@ -84,6 +89,7 @@ class TransactionServiceTest {
     }
 
     @Test
+    @DisplayName("NESTED：内层保存点回滚，外层继续并提交")
     void nestedShouldRollbackOnlyInnerWorkAndCommitOuterWork() {
         propagationService.nestedOuterContinues();
 
@@ -94,6 +100,7 @@ class TransactionServiceTest {
     }
 
     @Test
+    @DisplayName("SUPPORTS：有外层事务则加入，无则独立执行（此处加入并提交）")
     void supportsShouldJoinOuterTransaction() {
         propagationService.supportsOuterCommit();
 
@@ -104,6 +111,7 @@ class TransactionServiceTest {
     }
 
     @Test
+    @DisplayName("NOT_SUPPORTED：内层挂起外层事务独立提交，外层随后回滚")
     void notSupportedShouldCommitInnerLogAfterOuterRollback() {
         assertThatThrownBy(propagationService::notSupportedOuterRollback)
                 .isInstanceOf(IllegalStateException.class)
@@ -114,6 +122,7 @@ class TransactionServiceTest {
     }
 
     @Test
+    @DisplayName("MANDATORY：无外层事务时直接拒绝（IllegalTransactionStateException）")
     void mandatoryShouldRejectCallWithoutExistingTransaction() {
         assertThatThrownBy(transactionWorker::mandatoryInner)
                 .isInstanceOf(IllegalTransactionStateException.class);
@@ -122,6 +131,7 @@ class TransactionServiceTest {
     }
 
     @Test
+    @DisplayName("MANDATORY：有外层事务时加入并提交")
     void mandatoryShouldJoinExistingOuterTransaction() {
         propagationService.mandatoryOuterCommit();
 
@@ -132,6 +142,7 @@ class TransactionServiceTest {
     }
 
     @Test
+    @DisplayName("NEVER：无外层事务时正常执行")
     void neverShouldRunWithoutExistingTransaction() {
         transactionWorker.neverInner();
 
@@ -140,6 +151,7 @@ class TransactionServiceTest {
     }
 
     @Test
+    @DisplayName("NEVER：外层有事务时拒绝（IllegalTransactionStateException）")
     void neverShouldRejectCallFromTransactionalOuterMethod() {
         assertThatThrownBy(propagationService::neverOuterRollback)
                 .isInstanceOf(IllegalTransactionStateException.class);

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.charset.StandardCharsets;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class DesDemoTest {
@@ -13,6 +14,7 @@ class DesDemoTest {
     private static final byte[] PLAIN = "3DES 测试：12345678".getBytes(StandardCharsets.UTF_8);
 
     @Test
+    @DisplayName("DES-CBC：8 字节密钥，加密后再解密还原明文")
     void desRoundTrip() {
         byte[] key = DesDemo.randomDesKey();
         assertEquals(8, key.length);
@@ -21,6 +23,7 @@ class DesDemoTest {
     }
 
     @Test
+    @DisplayName("3DES-CBC：24 字节密钥，加密后再解密还原明文")
     void desedeRoundTrip() {
         byte[] key = DesDemo.randomDesedeKey();
         assertEquals(24, key.length);
@@ -29,6 +32,7 @@ class DesDemoTest {
     }
 
     @Test
+    @DisplayName("DES-CBC 错误密钥：解密抛异常（密钥不匹配）")
     void wrongKeyFails() {
         byte[] key = DesDemo.randomDesKey();
         byte[] cipher = DesDemo.desCbcEncrypt(key, PLAIN);

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.charset.StandardCharsets;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class AesDemoTest {
@@ -15,18 +16,21 @@ class AesDemoTest {
     private static final byte[] PLAIN = "AES 测试数据：1234567890".getBytes(StandardCharsets.UTF_8);
 
     @Test
+    @DisplayName("AES-ECB：加密后再解密能还原明文（往返一致）")
     void ecbRoundTrip() {
         byte[] cipher = AesDemo.ecbEncrypt(KEY, PLAIN);
         assertArrayEquals(PLAIN, AesDemo.ecbDecrypt(KEY, cipher));
     }
 
     @Test
+    @DisplayName("AES-CBC：加密后再解密能还原明文（往返一致）")
     void cbcRoundTrip() {
         byte[] cipher = AesDemo.cbcEncrypt(KEY, PLAIN);
         assertArrayEquals(PLAIN, AesDemo.cbcDecrypt(KEY, cipher));
     }
 
     @Test
+    @DisplayName("AES-CBC：相同明文两次加密结果不同（IV 随机，防重放）")
     void cbcRandomizedIv() {
         // 相同明文两次加密结果不同（IV 随机）
         assertNotEquals(java.util.Arrays.toString(AesDemo.cbcEncrypt(KEY, PLAIN)),
@@ -34,12 +38,14 @@ class AesDemoTest {
     }
 
     @Test
+    @DisplayName("AES-CTR：加密后再解密能还原明文（往返一致）")
     void ctrRoundTrip() {
         byte[] cipher = AesDemo.ctrEncrypt(KEY, PLAIN);
         assertArrayEquals(PLAIN, AesDemo.ctrDecrypt(KEY, cipher));
     }
 
     @Test
+    @DisplayName("AES-CTR 流模式：非 16 倍数明文无需填充，密文长度 = IV + 明文长度")
     void ctrNoPaddingStream() {
         byte[] plain = new byte[37]; // 非 16 倍数，流模式无需填充
         for (int i = 0; i < plain.length; i++) {
@@ -51,12 +57,14 @@ class AesDemoTest {
     }
 
     @Test
+    @DisplayName("AES-GCM：加密后再解密能还原明文（往返一致）")
     void gcmRoundTrip() {
         byte[] cipher = AesDemo.gcmEncrypt(KEY, PLAIN);
         assertArrayEquals(PLAIN, AesDemo.gcmDecrypt(KEY, cipher));
     }
 
     @Test
+    @DisplayName("AES-GCM 篡改检测：翻转标签最后 1 位，解密被拒绝")
     void gcmTamperDetected() {
         byte[] cipher = AesDemo.gcmEncrypt(KEY, PLAIN);
         byte[] tampered = cipher.clone();
@@ -65,6 +73,7 @@ class AesDemoTest {
     }
 
     @Test
+    @DisplayName("AES-CBC 错误密钥：解密抛异常（密钥不匹配）")
     void wrongKeyFails() {
         byte[] cipher = AesDemo.cbcEncrypt(KEY, PLAIN);
         byte[] wrongKey = AesDemo.randomKey(128);
@@ -77,6 +86,7 @@ class AesDemoTest {
     private static final byte[] VICTIM = "name=admin&role=0".getBytes(StandardCharsets.UTF_8);
 
     @Test
+    @DisplayName("CBC 块翻转攻击：翻转 C1[0] 把 role=0 可控修改为 role=1")
     void cbcBitFlipChangesTargetByte() {
         byte[] cbc = AesDemo.cbcEncrypt(KEY, VICTIM);
         // 明文 "name=admin&role=0"：块1="name=admin&role="(16B)，'0' 在块 2 偏移 0。
@@ -87,6 +97,7 @@ class AesDemoTest {
     }
 
     @Test
+    @DisplayName("CBC 块翻转副作用：被翻转的密文块解出的前一块变乱码")
     void cbcBitFlipCorruptsPreviousBlock() {
         byte[] cbc = AesDemo.cbcEncrypt(KEY, VICTIM);
         byte[] tampered = AesDemo.cbcBitFlip(cbc, 1, 0, (byte) ('0' ^ '1'));
@@ -97,6 +108,7 @@ class AesDemoTest {
     }
 
     @Test
+    @DisplayName("CBC 块翻转：翻转 IV 只影响第一块对应字节，其余块保持原文")
     void cbcBitFlipIvOnlyAffectsFirstBlock() {
         byte[] cbc = AesDemo.cbcEncrypt(KEY, VICTIM);
         // 翻转 IV 偏移 0（'n' 0x6E ^ 'N' 0x4E = 0x20）→ 只影响块 1 对应字节，其余块不受影响
@@ -109,6 +121,7 @@ class AesDemoTest {
     }
 
     @Test
+    @DisplayName("GCM 对照：同样的密文翻转被认证标签拒绝（防篡改）")
     void cbcBitFlipGcmRejectsTampering() {
         // 对照：GCM 认证加密下同样的翻转被拒绝（标签校验失败）
         byte[] gcm = AesDemo.gcmEncrypt(KEY, VICTIM);
@@ -118,6 +131,7 @@ class AesDemoTest {
     }
 
     @Test
+    @DisplayName("CBC 块翻转越界：块/字节索引非法抛 IllegalArgumentException")
     void cbcBitFlipOutOfRangeRejected() {
         byte[] cbc = AesDemo.cbcEncrypt(KEY, VICTIM);
         assertThrows(IllegalArgumentException.class, () -> AesDemo.cbcBitFlip(cbc, 99, 0, (byte) 1));
@@ -126,6 +140,7 @@ class AesDemoTest {
     }
 
     @Test
+    @DisplayName("CBC 块翻转非法格式：非 [IV(16) || 16 倍数] 密文被拒绝")
     void cbcBitFlipInvalidFormatRejected() {
         byte[] bad = new byte[10]; // 不是 [IV(16) || 16 倍数]
         assertThrows(IllegalArgumentException.class, () -> AesDemo.cbcBitFlip(bad, 0, 0, (byte) 1));

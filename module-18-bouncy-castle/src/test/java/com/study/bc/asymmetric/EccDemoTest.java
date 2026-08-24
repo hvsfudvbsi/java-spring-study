@@ -7,11 +7,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class EccDemoTest {
 
     @Test
+    @DisplayName("ECDH 协商：双方各自算出的共享秘密一致")
     void ecdhAgreement() {
         KeyPair alice = EccDemo.generateKeyPair();
         KeyPair bob = EccDemo.generateKeyPair();
@@ -21,6 +23,7 @@ class EccDemoTest {
     }
 
     @Test
+    @DisplayName("ECDSA 签名：私钥签名后公钥验签通过")
     void signVerify() {
         KeyPair alice = EccDemo.generateKeyPair();
         byte[] data = "ECC 签名测试".getBytes(StandardCharsets.UTF_8);
@@ -29,6 +32,7 @@ class EccDemoTest {
     }
 
     @Test
+    @DisplayName("ECDSA 篡改检测：签名后修改数据，验签失败")
     void tamperedDataRejected() {
         KeyPair alice = EccDemo.generateKeyPair();
         byte[] data = "原始数据".getBytes(StandardCharsets.UTF_8);
@@ -37,6 +41,7 @@ class EccDemoTest {
     }
 
     @Test
+    @DisplayName("ECDSA 错公钥：他人公钥验签失败")
     void wrongPublicKeyRejected() {
         KeyPair alice = EccDemo.generateKeyPair();
         KeyPair mallory = EccDemo.generateKeyPair();

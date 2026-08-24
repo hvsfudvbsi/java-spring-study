@@ -9,6 +9,7 @@ import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
 
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class Pkcs12DemoTest {
@@ -25,6 +26,7 @@ class Pkcs12DemoTest {
     }
 
     @Test
+    @DisplayName("PKCS#12 往返：私钥与证书链打包后再读回，字节级一致")
     void roundTrip() throws Exception {
         Pkcs12Demo.Entry entry = Pkcs12Demo.fromPkcs12(p12, ALIAS, PASSWORD);
         assertArrayEquals(bundle.privateKey().getEncoded(), entry.privateKey().getEncoded());
@@ -35,6 +37,7 @@ class Pkcs12DemoTest {
     }
 
     @Test
+    @DisplayName("PKCS#12 读回的证书链仍能通过信任链验证")
     void chainTrustedAfterRoundTrip() {
         Pkcs12Demo.Entry entry = Pkcs12Demo.fromPkcs12(p12, ALIAS, PASSWORD);
         Certificate[] chain = entry.chain();
@@ -44,6 +47,7 @@ class Pkcs12DemoTest {
     }
 
     @Test
+    @DisplayName("PKCS#12 错误口令：读取被拒绝")
     void wrongPasswordRejected() {
         assertThrows(IllegalStateException.class,
                 () -> Pkcs12Demo.fromPkcs12(p12, ALIAS, "wrong-password".toCharArray()));

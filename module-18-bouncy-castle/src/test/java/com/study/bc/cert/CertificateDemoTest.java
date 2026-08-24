@@ -13,6 +13,7 @@ import java.util.List;
 
 import org.bouncycastle.asn1.x500.X500Name;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class CertificateDemoTest {
@@ -33,6 +34,7 @@ class CertificateDemoTest {
     }
 
     @Test
+    @DisplayName("CA 根证书自签名：Subject=Issuer，自身公钥验签通过")
     void caSelfSigned() {
         assertEquals("CN=Test CA", caCert.getSubjectX500Principal().getName());
         assertEquals(caCert.getSubjectX500Principal(), caCert.getIssuerX500Principal());
@@ -40,6 +42,7 @@ class CertificateDemoTest {
     }
 
     @Test
+    @DisplayName("服务器证书由 CA 签发：Issuer=CA，CA 公钥验签通过，SAN 域名正确")
     void serverIssuedByCa() {
         assertEquals("CN=Test CA", serverCert.getIssuerX500Principal().getName());
         assertTrue(CertificateDemo.verifySignature(serverCert, caKey.getPublic()));
@@ -47,6 +50,7 @@ class CertificateDemoTest {
     }
 
     @Test
+    @DisplayName("信任链验证：CA 签发的证书链通过，无关 CA 拒绝")
     void chainValidation() {
         assertTrue(CertificateDemo.verifyChain(serverCert, caCert));
         KeyPair evil = CertificateDemo.generateKeyPair();
@@ -55,6 +59,7 @@ class CertificateDemoTest {
     }
 
     @Test
+    @DisplayName("有效期检查：当前时间有效通过，过期证书被拒绝")
     void validityCheck() {
         CertificateDemo.checkValidity(serverCert); // 当前时间有效，不抛
 
@@ -67,6 +72,7 @@ class CertificateDemoTest {
     }
 
     @Test
+    @DisplayName("无关公钥验签失败：不是 CA 私钥签的必然拒绝")
     void tamperedPublicKeyFails() {
         // 用无关密钥对的公钥去验证服务器证书的签名（CA 私钥签的）必然失败
         KeyPair unrelated = CertificateDemo.generateKeyPair();

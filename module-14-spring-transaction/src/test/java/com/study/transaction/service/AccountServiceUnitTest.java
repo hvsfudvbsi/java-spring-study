@@ -2,6 +2,7 @@ package com.study.transaction.service;
 
 import com.study.transaction.repository.AccountRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -26,6 +27,7 @@ class AccountServiceUnitTest {
     }
 
     @Test
+    @DisplayName("转账：先扣款后入账，两次仓库调用顺序正确")
     void transferShouldWithdrawThenDeposit() {
         when(accountRepository.withdraw(1L, new BigDecimal("30.00"))).thenReturn(1);
         when(accountRepository.deposit(2L, new BigDecimal("30.00"))).thenReturn(1);
@@ -37,6 +39,7 @@ class AccountServiceUnitTest {
     }
 
     @Test
+    @DisplayName("同账户转账：在仓库调用前被拒绝")
     void sameAccountShouldBeRejectedBeforeRepositoryCalls() {
         assertThatThrownBy(() -> accountService.transfer(1L, 1L, new BigDecimal("1.00")))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -44,6 +47,7 @@ class AccountServiceUnitTest {
     }
 
     @Test
+    @DisplayName("非正金额：在仓库调用前被拒绝")
     void nonPositiveAmountShouldBeRejected() {
         assertThatThrownBy(() -> accountService.transfer(1L, 2L, BigDecimal.ZERO))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -51,6 +55,7 @@ class AccountServiceUnitTest {
     }
 
     @Test
+    @DisplayName("余额不足：扣款返回 0，入账前即失败")
     void insufficientBalanceShouldStopBeforeDeposit() {
         when(accountRepository.withdraw(1L, new BigDecimal("30.00"))).thenReturn(0);
 
@@ -60,6 +65,7 @@ class AccountServiceUnitTest {
     }
 
     @Test
+    @DisplayName("转入账户不存在：扣款成功后入账失败")
     void missingRecipientShouldFailAfterWithdraw() {
         when(accountRepository.withdraw(1L, new BigDecimal("30.00"))).thenReturn(1);
         when(accountRepository.deposit(2L, new BigDecimal("30.00"))).thenReturn(0);

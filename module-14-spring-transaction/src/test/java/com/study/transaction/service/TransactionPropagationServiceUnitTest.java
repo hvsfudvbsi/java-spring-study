@@ -2,6 +2,7 @@ package com.study.transaction.service;
 
 import com.study.transaction.repository.TransactionLogRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -25,6 +26,7 @@ class TransactionPropagationServiceUnitTest {
     }
 
     @Test
+    @DisplayName("REQUIRED：写外层日志并调用内层工作方法")
     void requiredShouldWriteOuterLogAndCallWorker() {
         propagationService.requiredRollback();
 
@@ -33,6 +35,7 @@ class TransactionPropagationServiceUnitTest {
     }
 
     @Test
+    @DisplayName("REQUIRES_NEW：写外层日志，内层调用后外层异常向上传播")
     void requiresNewShouldWriteOuterLogAndPropagateOuterFailure() {
         assertThatThrownBy(() -> propagationService.requiresNewOuterRollback())
                 .isInstanceOf(IllegalStateException.class)
@@ -43,6 +46,7 @@ class TransactionPropagationServiceUnitTest {
     }
 
     @Test
+    @DisplayName("NESTED：内层抛异常被吞，外层继续写日志")
     void nestedShouldContinueAfterWorkerFailure() {
         org.mockito.Mockito.doThrow(new IllegalStateException("nested failed"))
                 .when(transactionWorker).nestedInner();
@@ -54,6 +58,7 @@ class TransactionPropagationServiceUnitTest {
     }
 
     @Test
+    @DisplayName("SUPPORTS：外层流程中调用内层工作方法")
     void supportsShouldCallWorkerInsideOuterFlow() {
         propagationService.supportsOuterCommit();
 
@@ -62,6 +67,7 @@ class TransactionPropagationServiceUnitTest {
     }
 
     @Test
+    @DisplayName("NOT_SUPPORTED：内层调用后外层异常向上传播")
     void notSupportedShouldPropagateOuterFailure() {
         assertThatThrownBy(propagationService::notSupportedOuterRollback)
                 .isInstanceOf(IllegalStateException.class)
@@ -72,6 +78,7 @@ class TransactionPropagationServiceUnitTest {
     }
 
     @Test
+    @DisplayName("MANDATORY：外层流程中调用内层工作方法")
     void mandatoryShouldCallWorkerInsideOuterFlow() {
         propagationService.mandatoryOuterCommit();
 
@@ -80,6 +87,7 @@ class TransactionPropagationServiceUnitTest {
     }
 
     @Test
+    @DisplayName("NEVER：外层流程中调用内层工作方法")
     void neverShouldCallWorkerInsideOuterFlow() {
         propagationService.neverOuterRollback();
 

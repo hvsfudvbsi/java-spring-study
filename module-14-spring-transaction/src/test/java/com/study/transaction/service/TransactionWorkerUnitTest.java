@@ -2,6 +2,7 @@ package com.study.transaction.service;
 
 import com.study.transaction.repository.TransactionLogRepository;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -26,6 +27,7 @@ class TransactionWorkerUnitTest {
     }
 
     @Test
+    @DisplayName("REQUIRED 内层：写日志后抛异常（事务边界由集成测试验证）")
     void requiredInnerShouldWriteLogThenThrow() {
         assertThatThrownBy(transactionWorker::requiredInner)
                 .isInstanceOf(IllegalStateException.class)
@@ -35,6 +37,7 @@ class TransactionWorkerUnitTest {
     }
 
     @Test
+    @DisplayName("REQUIRES_NEW 内层：写独立日志（事务边界由集成测试验证）")
     void requiresNewInnerShouldWriteIndependentLog() {
         transactionWorker.requiresNewInner();
 
@@ -42,6 +45,7 @@ class TransactionWorkerUnitTest {
     }
 
     @Test
+    @DisplayName("NESTED 内层：写日志后抛异常（保存点由集成测试验证）")
     void nestedInnerShouldWriteLogThenThrow() {
         assertThatThrownBy(transactionWorker::nestedInner)
                 .isInstanceOf(IllegalStateException.class)
@@ -51,6 +55,7 @@ class TransactionWorkerUnitTest {
     }
 
     @Test
+    @DisplayName("SUPPORTS 内层：写日志（事务边界由集成测试验证）")
     void supportsInnerShouldWriteLog() {
         transactionWorker.supportsInner();
 
@@ -58,6 +63,7 @@ class TransactionWorkerUnitTest {
     }
 
     @Test
+    @DisplayName("NOT_SUPPORTED 内层：写日志（挂起语义由集成测试验证）")
     void notSupportedInnerShouldWriteLog() {
         transactionWorker.notSupportedInner();
 
@@ -65,6 +71,7 @@ class TransactionWorkerUnitTest {
     }
 
     @Test
+    @DisplayName("MANDATORY 内层直接调用：写日志（无事务时拒绝由集成测试验证）")
     void mandatoryInnerShouldWriteLogWhenMethodIsCalledDirectly() {
         transactionWorker.mandatoryInner();
 
@@ -72,6 +79,7 @@ class TransactionWorkerUnitTest {
     }
 
     @Test
+    @DisplayName("NEVER 内层直接调用：写日志（有事务时拒绝由集成测试验证）")
     void neverInnerShouldWriteLogWhenMethodIsCalledDirectly() {
         transactionWorker.neverInner();
 

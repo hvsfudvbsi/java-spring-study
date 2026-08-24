@@ -10,6 +10,7 @@ import org.bouncycastle.crypto.AsymmetricCipherKeyPair;
 import org.bouncycastle.crypto.params.ECPrivateKeyParameters;
 import org.bouncycastle.crypto.params.ECPublicKeyParameters;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 class Sm2DemoTest {
@@ -25,6 +26,7 @@ class Sm2DemoTest {
     }
 
     @Test
+    @DisplayName("SM2 加解密：公钥加密后私钥解密还原明文")
     void encryptDecryptRoundTrip() {
         byte[] plain = "国密 SM2 加解密测试".getBytes(StandardCharsets.UTF_8);
         byte[] cipher = Sm2Demo.encrypt(pub, plain);
@@ -32,6 +34,7 @@ class Sm2DemoTest {
     }
 
     @Test
+    @DisplayName("SM2 加密随机性：相同明文两次加密密文不同（C1 随机点）")
     void encryptedRandomized() {
         byte[] plain = "随机性测试".getBytes(StandardCharsets.UTF_8);
         byte[] c1 = Sm2Demo.encrypt(pub, plain);
@@ -40,6 +43,7 @@ class Sm2DemoTest {
     }
 
     @Test
+    @DisplayName("SM2 签名：私钥签名后公钥验签通过")
     void signVerify() {
         byte[] data = "国密 SM2 签名测试".getBytes(StandardCharsets.UTF_8);
         byte[] sig = Sm2Demo.sign(priv, data);
@@ -47,6 +51,7 @@ class Sm2DemoTest {
     }
 
     @Test
+    @DisplayName("SM2 篡改检测：签名后修改数据，验签失败")
     void tamperedDataRejected() {
         byte[] data = "原始数据".getBytes(StandardCharsets.UTF_8);
         byte[] sig = Sm2Demo.sign(priv, data);
