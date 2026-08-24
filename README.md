@@ -36,6 +36,15 @@ Java 21 + Spring Boot 3.5 多模块学习仓库：**从 Java 基础到 Spring Cl
 | [module-15-network](module-15-network) | 计算机网络 | 分层模型、TCP/UDP/IP/以太网报文首部逐位解析、TCP vs UDP 对比、JDK 原生 Socket 编程、粘包演示 |
 | [module-16-spring-boot-netty](module-16-spring-boot-netty) | Spring Boot 集成 Netty | Tomcat 进程内嵌 Netty TCP 服务、共享 Spring Bean、独立进程 vs 同 JVM 嵌入选型 |
 
+## 📚 速查文档（docs/）
+
+独立于模块的选型速查，从「要解决什么问题」出发快速定位方案：
+
+| 文档 | 主题 | 来源模块 |
+|------|------|---------|
+| [docs/network-cheatsheet.md](docs/network-cheatsheet.md) | 网络协议选型：TCP vs UDP、分层模型、TCP 选项/状态机/拥塞控制、粘包解决、CIDR 边界、一分钟决策 | module-15-network |
+| [docs/crypto-cheatsheet.md](docs/crypto-cheatsheet.md) | 密码学选型：HMAC vs CMAC、哈希/对称/非对称/签名/密钥协商、国密 SM2/SM3/SM4、一分钟决策 | module-18-bouncy-castle |
+
 ## 🚀 快速开始
 
 ### 环境要求
