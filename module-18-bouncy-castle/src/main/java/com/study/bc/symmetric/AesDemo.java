@@ -101,6 +101,30 @@ public final class AesDemo {
         }
     }
 
+    /**
+     * CBC 密文块翻转攻击：翻转密文（[IV || C1...]）中第 blockIndex 块（0=IV）第 byteIndex 字节，
+     * 返回篡改后的密文。
+     *
+     * <p>原理：CBC 解密 P[i] = D(C[i]) XOR C[i-1]，翻转 C[i-1] 的某字节会让 P[i] 的对应字节
+     * 异或同样的 delta（可控修改），同时被翻转的 C[i-1] 自身解出的 P[i-1] 变乱码（副作用）。
+     * 演示用：攻击者把 role=0 翻转成 role=1、金额 1000 改成 9000，且 PKCS7 填充仍可能校验通过。
+     */
+    public static byte[] cbcBitFlip(byte[] in, int blockIndex, int byteIndex, byte delta) {
+        if (in.length < 16 || (in.length - 16) % 16 != 0) {
+            throw new IllegalArgumentException("CBC 密文格式非法: 需 [IV(16) || 16 的倍数密文]");
+        }
+        if (blockIndex < 0 || byteIndex < 0 || byteIndex >= 16) {
+            throw new IllegalArgumentException("翻转位置越界: block=" + blockIndex + ", byte=" + byteIndex);
+        }
+        int offset = blockIndex * 16 + byteIndex;
+        if (offset >= in.length) {
+            throw new IllegalArgumentException("翻转位置越界: block=" + blockIndex + ", byte=" + byteIndex);
+        }
+        byte[] tampered = in.clone();
+        tampered[offset] ^= delta;
+        return tampered;
+    }
+
     /** CTR 模式加密（等价于解密，返回 [IV || 密文]）。 */
     public static byte[] ctrEncrypt(byte[] key, byte[] plain) {
         byte[] iv = randomIv(16);
@@ -213,6 +237,44 @@ public final class AesDemo {
             System.out.println("  篡改检测: 未检测到（异常！）");
         } catch (IllegalStateException e) {
             System.out.println("  篡改检测: 已拒绝（" + e.getMessage() + "）");
+        }
+        System.out.println();
+
+        cbcBitFlipDemo(key);
+    }
+
+    /** CBC 密文块翻转攻击演示：把 role=0 翻转成 role=1，并与 GCM 对照。 */
+    private static void cbcBitFlipDemo(byte[] key) {
+        String victim = "name=admin&role=0";
+        byte[] plain = victim.getBytes(StandardCharsets.UTF_8);
+        byte[] cbc = cbcEncrypt(key, plain);
+        // 明文 17 字节 → 填充 32 字节 = [IV | C1(明文块1) | C2(明文块2)]。
+        // 明文块1="name=admin&role="(16 字节)，'0' 在明文块 2 偏移 0：
+        // 翻转 C1 偏移 0 ^= ('0'^'1') 即可把 role 改成 1，
+        // 同时被翻转的 C1 解出的明文块 1 变成乱码（副作用）。
+        byte delta = (byte) ('0' ^ '1'); // 0x01
+        byte[] tampered = cbcBitFlip(cbc, 1, 0, delta);
+        byte[] result = cbcDecrypt(key, tampered);
+        // 结果 = 乱码(块1) + "1" + 填充(块2)；P2 偏移 0 应是 '1'，块 1 不再是原文
+        boolean flipped = result.length > 16 && result[16] == '1';
+        boolean corrupted = !new String(result, 0, 16, StandardCharsets.UTF_8).equals("name=admin&role=");
+
+        System.out.println("CBC 密文块翻转攻击（无认证的后果）:");
+        System.out.println("  原始明文: " + victim);
+        System.out.println("  翻转 C1[0] ^= 0x01 后解密: [块1乱码 " + HEX.formatHex(java.util.Arrays.copyOf(result, 16))
+                + "] " + new String(result, 16, result.length - 16, StandardCharsets.UTF_8));
+        System.out.println("  -> 攻击者把 role=0 改成 role=1: " + flipped + "（目标块可控修改成功）");
+        System.out.println("  -> 副作用: 被翻转的 C1 解出的前一块变乱码: " + corrupted);
+
+        // GCM 对照：同样翻转密文体，标签校验直接拒绝
+        byte[] gcm = gcmEncrypt(key, plain);
+        byte[] gcmTampered = gcm.clone();
+        gcmTampered[12 + 1] ^= delta; // 跳过 12 字节 IV，翻转第一个密文块偏移 1
+        try {
+            gcmDecrypt(key, gcmTampered);
+            System.out.println("  GCM 对照: 未检测到（异常！）");
+        } catch (IllegalStateException e) {
+            System.out.println("  GCM 对照: 同样翻转被拒绝（认证标签保护，无法静默篡改）");
         }
         System.out.println();
     }

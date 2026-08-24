@@ -23,7 +23,7 @@
 | `cert` | `CertificateDemo` | X.509 证书：CA 自签名根证书、签发服务器证书、信任链/有效期/签名验证 |
 | `cert` | `Pkcs12Demo` | PKCS#12 密钥库：私钥+证书链打包（.p12 字节流）、读回还原、口令保护 |
 
-测试：`src/test/java/com/study/bc/**` 共 **67 个**（每个算法往返、篡改检测、错钥/错数据拒绝、已知向量、证书链/密钥库、SM2 底层/互操作）。
+测试：`src/test/java/com/study/bc/**` 共 **73 个**（每个算法往返、篡改检测、错钥/错数据拒绝、已知向量、证书链/密钥库、SM2 底层/互操作、CBC 块翻转）。
 
 ## 二、运行方式
 
@@ -56,9 +56,17 @@ mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.
 | 模式 | 特点 | 使用注意 |
 |---|---|---|
 | ECB | 相同明文块→相同密文块，无扩散 | **弃用**（泄露明文统计信息） |
-| CBC | 密文链式异或，有扩散 | 需随机 IV，PKCS7 填充 |
+| CBC | 密文链式异或，有扩散 | 需随机 IV，PKCS7 填充；**无认证，可被块翻转攻击** |
 | CTR(SIC) | 流密码化，无填充 | 密文长度=明文长度；**IV 不得重复** |
 | GCM | 认证加密 AEAD，密文+标签 | 现代首选；标签校验失败=篡改 |
+
+**CBC 密文块翻转攻击**（`AesDemo.cbcBitFlip`，见演示）：
+
+- 原理：解密 `P[i] = D(C[i]) XOR C[i-1]`，翻转 `C[i-1]` 的某字节会让 `P[i]` 对应字节
+  异或同样的 delta——**攻击者能精确改写目标字节**（如把 `role=0` 改成 `role=1`、金额 1000 改 9000）；
+- 副作用：被翻转的 `C[i-1]` 自身解出的前一块变乱码（所以目标字段要放在后一块）；
+  翻转 IV 只影响第一块、无副作用；PKCS7 填充仍可能校验通过（静默篡改）；
+- 对策：用 GCM 等 AEAD 模式——同样翻转会被认证标签直接拒绝（演示中对照验证）。
 
 ### 4. RSA 填充
 
@@ -123,7 +131,7 @@ mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.
 
 ## 四、动手练习
 
-1. 给 `AesDemo` 增加 **CBC 密文块翻转攻击演示**：翻转前一块密文某字节，观察下一块明文对应字节被翻转（填充仍可能通过）。
+1. ~~给 `AesDemo` 增加 **CBC 密文块翻转攻击演示**~~（已完成：`cbcBitFlip` 方法 + demo 演示 role=0→1 与 GCM 对照）→ 延伸：把攻击封装成 `CbcBitFlipAttack` 工具类，支持按**明文偏移**定位翻转（而非手算块/字节索引）。
 2. 给 `HashDemo` 增加 **SHA-512/224、SHAKE128** 等 SHA-3 家族变体。
 3. 给 `RsaDemo` 增加 **PKCS#1 v1.5 填充预言机（Bleichenbacher）模拟**：随机填充解密失败时观察行为差异。
 4. 用 `KeyManagementDemo` 生成密钥对并导出 PEM，用 **openssl 命令行**解析对比（`openssl pkey -in key.pem -text`）。
@@ -136,6 +144,6 @@ mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.
 
 ## 五、验证
 
-- `mvn test -pl module-18-bouncy-castle`：67 个测试全绿。
+- `mvn test -pl module-18-bouncy-castle`：73 个测试全绿。
 - 全量 `mvn clean verify`：BUILD SUCCESS、0 checkstyle 违规。
 - 实际运行 `Main`：8 个小节全部往返验证通过（哈希向量、AES 四模式、SM2/SM3/SM4 信封、签名五种、PEM 还原、DH/ECDH 协商一致、CA 签发与信任链、PKCS#12 打包还原）。
