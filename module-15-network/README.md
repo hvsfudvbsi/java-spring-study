@@ -17,6 +17,8 @@
 | `packet/IcmpHeader` | 网络层 ICMP 首部：**类型/代码/校验和**/标识/序号（ping 的报文） | 8 字节固定 |
 | `packet/ArpHeader` | **链路层 ARP 报文**：硬件/协议类型、地址长度、操作码（请求/回复）、发送方/目标 MAC+IP（以太网+IPv4 固定 28 字节） | 28 字节固定 |
 | `packet/PacketParser` | 完整报文分层解析：**先按 EtherType 分派（0x0800=IPv4 / 0x0806=ARP）**，再按协议号分派 TCP/UDP/ICMP → 负载（模拟 Wireshark 逐层剥离） | — |
+| `packet/DnsHeader` | 应用层 DNS 头部：事务 ID、标志（QR/Opcode/**AA/TC/RD/RA**/RCODE）、四类记录计数 | 12 字节固定 |
+| `packet/DnsQuestion` | 应用层 DNS 查询记录：**QNAME 标签编码**（`[3]www[7]example[3]com[0]`）、QTYPE/QCLASS | 变长（域名 + 4） |
 
 **首部长度速记**：以太网 14 < UDP 8？不——UDP 8 字节是首部，以太网 14 字节是帧头，两者不同层。同层对比：**TCP 20+ vs UDP 8**。
 
@@ -318,6 +320,8 @@ IP 报文超过链路 MTU（如以太网 1500 字节）时，路由器把报文�
 
 HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是客户端与服务端**协商参数 + 互相证明身份**的过程，运行 `TlsHandshakeDemo`（纯 JDK `SSLSocket`）会开启 JSSE 握手跟踪（`javax.net.debug=ssl:handshake`），打印 TLS 1.3 每一步的真实报文：
 
+HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是客户端与服务端**协商参数 + 互相证明身份**的过程，运行 `TlsHandshakeDemo`（纯 JDK `SSLSocket`）会开启 JSSE 握手跟踪（`javax.net.debug=ssl:handshake`），打印 TLS 1.3 每一步的真实报文：
+
 | 步骤 | 方向 | 作用 |
 |------|------|------|
 | ClientHello | 客户端→服务器 | 客户端随机数、支持的 TLS 版本与密码套件、SNI（服务器名） |
@@ -335,6 +339,35 @@ HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是�
 - **双向确认**：双方各发一次 Finished 校验全部握手消息，任何一方中途被篡改都会失败。
 - 想看密钥细节，把调试级别改成 `ssl:handshake:verbose`。Netty 版演示见 [module-11-netty](../module-11-netty) 的 `ssl/SslHandshakeDemo`。
 
+### 12. DNS：域名解析的报文格式（对应 `packet/DnsHeader` + `packet/DnsQuestion`）
+
+DNS 把域名解析成 IP 地址（www.example.com -> 93.184.216.34），是浏览器上网前必发的一个 UDP 查询。
+
+**解析过程（面试常问）：**
+```text
+浏览器 -> 本地 DNS（递归查询，帮你查到底）
+         -> 根服务器（告诉你 .com 的地址）
+         -> .com 顶级域服务器（告诉你 example.com 的地址）
+         -> example.com 权威服务器（告诉你 www 的 IP）
+         <- 逐级返回，本地 DNS 缓存结果
+```
+
+**报文结构**：`12 字节头部 + 问题记录 + 回答/授权/附加记录`，运行在 **UDP 53 端口**。
+
+| 头部字段 | 大小 | 含义 |
+|---------|------|------|
+| 事务 ID | 16 bit | 把请求与响应配对，ID 不匹配的响应直接丢弃（防伪造） |
+| 标志 | 16 bit | **QR**（0=查询 1=响应）、**Opcode**、AA、**TC**（截断）、**RD**（期望递归）、**RA**（可递归）、RCODE（0=NOERROR、3=NXDOMAIN） |
+| QDCOUNT / ANCOUNT / NSCOUNT / ARCOUNT | 各 16 bit | 四种记录各有多少条，告诉解析器后面怎么切 |
+
+问题记录里 QNAME 用**标签编码**表示域名：`[长度][标签]...`，0x00 结束，`www.example.com` → `03 77 77 77 07 65 78 61 6D 70 6C 65 03 63 6F 6D 00`；QTYPE（1=A、28=AAAA、5=CNAME、15=MX）、QCLASS（1=IN）。
+
+关键理解：
+- 为什么 DNS 用 UDP：查询响应通常一个数据报就装下，UDP 快且开销小；应答超过 512 字节（TC 置位）或需要可靠传输时切到 **TCP 53** 重查。
+- 标签编码约束：单个标签 ≤ 63 字节、完整域名 ≤ 255 字节（所以域名最长就是 253 个字符）。
+- 响应里的域名可**压缩**：重复出现的名字写一个 0xC0 开头的 2 字节指针指向报文前面出现过的位置（省空间）；查询记录里不会出现，本模块解析到会明确拒绝（见 `DnsQuestion` 注释）。
+- 本模块 `DnsHeader` + `DnsQuestion` 可独立编解码一条完整 DNS 查询（`Main` 演示：头部 12 字节 + 查询记录 21 字节 = 33 字节）。
+
 ## 🧪 测试
 
 | 测试类 | 验证内容 | 不验证的内容 |
@@ -347,6 +380,8 @@ HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是�
 | `IcmpHeaderTest`（6） | ping 请求/回复往返、字段位置、类型名称、偏移解析 | 真实 ping 抓包 |
 | `PacketParserTest`（6） | 完整报文 TCP/UDP/**ICMP** 分层解析、**按 EtherType 分派 ARP**、未知协议/EtherType 拒绝 | 真实抓包 |
 | `ArpHeaderTest`（6） | 28 字节固定、请求/回复操作码、字段位置、偏移解析、非法参数 | 真实 ARP 广播 |
+| `DnsHeaderTest`（8） | 12 字节固定、查询/响应工厂、标志位字节布局、TC/RA 组合、NXDOMAIN、偏移解析、非法参数 | 真实 DNS 服务器 |
+| `DnsQuestionTest`（8） | 标签编码（[3]www[7]example[3]com[0]）、往返、QTYPE 描述、紧跟头部解析、压缩指针拒绝、非法域名 | 真实域名解析 |
 | `TransportProtocolTest`（4） | TCP/UDP 属性与首部长度对比、协议号反查 | — |
 | `TcpStateMachineTest`（17） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、**RST 连接重置（拒绝/重置/忽略）**、非法转换拒绝 | 真实网络时序 |
 | `SubnetCalculatorTest`（15） | 掩码转换、网络/广播地址、主机范围、可用主机数（含 /30、/31、/32 边界）、归属判断、等分子网 | 真实路由表 |
@@ -356,7 +391,7 @@ HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是�
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 118 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 134 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -381,6 +416,8 @@ HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是�
 11. 用 `tcpdump`/Wireshark 抓一个真实 TCP 包，把 IP 首部和 TCP 段的字节拷进测试，用 `Checksums` 验证校验和是否为 0xFFFF（理解校验和的实际用途）。
 12. 给 `IpHeader` 增加「分片重组」模拟：给定同一标识的多个分片（MF/片偏移不同），按片偏移拼接回原数据报并验证长度，补测试。
 13. 给 `ArpHeader` 增加「免费 ARP」构造助手（`gratuitous()`：发送方=目标，opcode=1），并用 `PacketParser` 验证能解析回同样的 IP->MAC 映射。
+14. 给 `DnsQuestion` 增加「多问题报文解析」：构造 QDCOUNT=2 的报文（两个不同域名），用 `parseAt` 连续解析并断言两次都正确。
+15. 给 `DnsHeader` 增加 `withId(int)` 拷贝方法，并演示「改事务 ID 后原响应校验失败」（模拟 DNS 伪造防护）。
 
 ## 📄 关联模块
 

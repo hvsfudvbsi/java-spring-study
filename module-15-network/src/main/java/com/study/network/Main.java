@@ -3,6 +3,8 @@ package com.study.network;
 import com.study.network.ip.SubnetCalculator;
 import com.study.network.packet.ArpHeader;
 import com.study.network.packet.Checksums;
+import com.study.network.packet.DnsHeader;
+import com.study.network.packet.DnsQuestion;
 import com.study.network.packet.EthernetFrame;
 import com.study.network.packet.IcmpHeader;
 import com.study.network.packet.IpHeader;
@@ -30,6 +32,7 @@ import com.study.network.socket.TcpStickyPacketDemo;
  *   5.1 ICMP 首部（ping 请求，类型/代码/校验和）
  *   6. 完整报文分层解析（以太网 -> IP -> TCP/UDP/ICMP）
  *   6.1 ARP 报文解析（EtherType=0x0806，不经过 IP 层）
+ *   6.2 DNS 查询报文（12 字节头部 + QNAME 标签编码的查询记录）
  *   7. TCP 三次握手/四次挥手状态机 + RST 连接重置演示
  *   8. TCP 粘包 vs UDP 有边界演示
  *   9. IP 子网划分/CIDR 计算演示
@@ -133,6 +136,19 @@ public class Main {
                 + "（isArp=" + parsedArp.isArp() + ", ip=" + parsedArp.ip() + "）");
         System.out.println();
 
+        // 6.2 DNS：UDP 53 端口上的域名查询（头部 12 字节 + 查询记录）
+        DnsHeader dnsHeader = DnsHeader.query(0x1234, true, 1); // id=0x1234, RD, 1 个问题
+        DnsQuestion dnsQuestion = new DnsQuestion("www.example.com",
+                DnsQuestion.QTYPE_A, DnsQuestion.QCLASS_IN);
+        byte[] dnsBytes = concat(dnsHeader.encode(), dnsQuestion.encode());
+        System.out.println("DNS 查询报文 " + dnsBytes.length + " 字节:");
+        System.out.println("  头部: " + DnsHeader.parse(dnsBytes));
+        System.out.println("  标签编码: " + hex(DnsQuestion.encodeName("www.example.com")));
+        DnsQuestion.ParsedQuestion parsedDns = DnsQuestion.parseAt(dnsBytes, DnsHeader.HEADER_LENGTH);
+        System.out.println("  查询: " + parsedDns.question()
+                + "（记录占 " + parsedDns.bytesConsumed() + " 字节）");
+        System.out.println();
+
         // 7. TCP 三次握手 / 四次挥手状态机 + RST 连接重置
         TcpStateMachine.printHandshakeDemo();
         TcpStateMachine.printRstDemo();
@@ -147,6 +163,14 @@ public class Main {
 
         // 10. TCP 拥塞控制（慢启动/拥塞避免/超时/快重传/快恢复）
         TcpCongestionControl.printDemo();
+    }
+
+    private static String hex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b & 0xFF));
+        }
+        return sb.toString().trim();
     }
 
     private static byte[] concat(byte[]... arrays) {
