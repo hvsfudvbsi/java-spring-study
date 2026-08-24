@@ -22,10 +22,11 @@ import java.util.List;
  * | 2 | MSS | 4 | 协商最大报文段（双方取小），SYN 里必带，如 1460 = 1500(MTU) - 20(IP) - 20(TCP) |
  * | 3 | Window Scale | 3 | 窗口缩放：窗口字段 16 bit 不够用，左移 N 位把窗口放大到最大 1GB |
  * | 4 | SACK-Permitted | 2 | 声明支持选择性确认（丢包时只重传丢失段，不用全部重传） |
- * | 5 | SACK | 变长 | 告知对端哪些段已收到（乱序到达时用） |
+ * | 5 | SACK | 变长 | 告知对端哪些段已收到（乱序到达时用），每块 8 字节 = 左边界 4 + 右边界 4 |
  * | 8 | Timestamp | 10 | 时间戳：计算 RTT、防序号回绕（PAWS） |
  *
  * 本类实现选项的构造（工厂方法）、编码（NOP 对齐）与解析（按 Kind/Length 迭代）。
+ * SACK 选项的块级编解码见 {@link SackBlock} 与 {@link #sack(SackBlock...)} / {@link #sackBlocks()}。
  */
 public record TcpOption(int kind, int length, byte[] value) {
 
@@ -78,6 +79,50 @@ public record TcpOption(int kind, int length, byte[] value) {
     /** SACK-Permitted 选项：声明支持选择性确认（无 Value，Length=2）。 */
     public static TcpOption sackPermitted() {
         return new TcpOption(KIND_SACK_PERMITTED, 2, new byte[0]);
+    }
+
+    /**
+     * SACK 选项：一组乱序确认块，每块 8 字节（左边界 4 + 右边界 4）。
+     *
+     * 约定：**第一个块是最近收到的段**（含最大序号的块），发送方据此推断丢包区间。
+     * 选项区域最多 40 字节，一个 SACK 块 8 字节，最多带 4 个块（2 + 4×8 = 34 字节）。
+     *
+     * @param blocks 至少 1 个、最多 4 个块
+     */
+    public static TcpOption sack(SackBlock... blocks) {
+        if (blocks == null || blocks.length == 0) {
+            throw new IllegalArgumentException("SACK 选项至少需要一个块");
+        }
+        if (blocks.length > 4) {
+            throw new IllegalArgumentException("SACK 选项最多 4 个块（2 + 4×8 = 34 字节）: " + blocks.length);
+        }
+        byte[] value = new byte[blocks.length * 8];
+        int pos = 0;
+        for (SackBlock block : blocks) {
+            pos = writeInt(value, pos, block.leftEdge());
+            pos = writeInt(value, pos, block.rightEdge());
+        }
+        return new TcpOption(KIND_SACK, 2 + value.length, value);
+    }
+
+    /**
+     * 把 SACK 选项的 Value 解析为块列表（每 8 字节一块：左边界 + 右边界，均大端）。
+     *
+     * @throws IllegalStateException 本选项不是 SACK
+     * @throws IllegalArgumentException Value 长度不是 8 的倍数，或块区间非法
+     */
+    public List<SackBlock> sackBlocks() {
+        if (kind != KIND_SACK) {
+            throw new IllegalStateException("只有 SACK 选项能解析块，当前是 " + kindName());
+        }
+        if (value.length == 0 || value.length % 8 != 0) {
+            throw new IllegalArgumentException("SACK 选项 Value 长度必须是 8 的倍数（每块 8 字节）: " + value.length);
+        }
+        List<SackBlock> blocks = new ArrayList<>(value.length / 8);
+        for (int pos = 0; pos < value.length; pos += 8) {
+            blocks.add(new SackBlock(readInt(value, pos), readInt(value, pos + 4)));
+        }
+        return blocks;
     }
 
     /** Timestamp 选项：TSval（发送方时间戳）+ TSecr（回显对端上次时间戳）。 */
@@ -184,6 +229,21 @@ public record TcpOption(int kind, int length, byte[] value) {
             case KIND_TIMESTAMP -> "Timestamp";
             default -> "未知选项 " + kind;
         };
+    }
+
+    /** 写入 4 字节大端无符号整数，返回下一个写入位置。 */
+    private static int writeInt(byte[] out, int pos, long value) {
+        out[pos] = (byte) (value >> 24);
+        out[pos + 1] = (byte) (value >> 16);
+        out[pos + 2] = (byte) (value >> 8);
+        out[pos + 3] = (byte) value;
+        return pos + 4;
+    }
+
+    /** 读取 4 字节大端无符号整数（0~4294967295）。 */
+    private static long readInt(byte[] in, int pos) {
+        return ((in[pos] & 0xFFL) << 24) | ((in[pos + 1] & 0xFFL) << 16)
+                | ((in[pos + 2] & 0xFFL) << 8) | (in[pos + 3] & 0xFFL);
     }
 
     /** 2 字节大端 Value 的值（MSS 用）。 */

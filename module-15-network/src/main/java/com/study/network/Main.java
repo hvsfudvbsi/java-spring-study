@@ -15,6 +15,7 @@ import com.study.network.packet.HttpResponse;
 import com.study.network.packet.IcmpHeader;
 import com.study.network.packet.IpHeader;
 import com.study.network.packet.PacketParser;
+import com.study.network.packet.SackBlock;
 import com.study.network.packet.TcpHeader;
 import com.study.network.packet.TcpOption;
 import com.study.network.packet.UdpHeader;
@@ -33,6 +34,7 @@ import com.study.network.socket.TcpStickyPacketDemo;
  *   2. TCP 首部 20 字节编码与解析（含数据偏移/标志位）
  *   2.1 TCP 校验和（伪首部 + 首部 + 数据）
  *   2.2 TCP 选项（SYN 携带 MSS=1460，数据偏移自动变大）
+ *   2.3 SACK 块（乱序确认区间，丢包只重传丢失段）
  *   3. UDP 首部 8 字节编码与解析（含 UDP 校验和）
  *   4. IPv4 首部编码与解析（版本/IHL/地址）
  *   4.1 IP 分片字段（标识/标志 MF/片偏移）
@@ -84,6 +86,18 @@ public class Main {
         TcpHeader parsedOptions = TcpHeader.parse(synWithMss.encode());
         System.out.println("解析回: dataOffset=" + parsedOptions.dataOffset()
                 + ", 选项=" + parsedOptions.options());
+
+        // 2.3 SACK 块：乱序确认（丢包时只重传丢失段，不用全部重传）
+        // 场景：发送序号 1000~4000，接收方只收到 1000~2000 与 3000~4000，中间 2000~3000 丢失
+        List<TcpOption> withSack = List.of(
+                TcpOption.sackPermitted(),
+                TcpOption.sack(new SackBlock(3000, 4000), new SackBlock(1000, 2000)));
+        TcpHeader sackHeader = syn.withOptions(withSack);
+        System.out.println("TCP SYN+SACK 首部 " + sackHeader.headerLength() + " 字节: " + sackHeader);
+        List<TcpOption> parsedSack = TcpHeader.parse(sackHeader.encode()).options();
+        TcpOption sackOption = parsedSack.get(1); // 第一个是 SACK-Permitted
+        System.out.println("解析回: 选项=" + parsedSack + ", SACK 块=" + sackOption.sackBlocks()
+                + "（丢包区间 [2000, 3000) 由块之间的空隙推断，只重传这段）");
         System.out.println();
 
         // 3. UDP 首部：DNS 查询 53 端口（含 UDP 校验和，IPv4 下可选）

@@ -140,4 +140,110 @@ class TcpOptionTest {
         assertEquals(0x1E, parsed.get(0).kind());
         assertTrue(parsed.get(0).kindName().startsWith("未知"));
     }
+
+    @Test
+    @DisplayName("SACK 单块往返：乱序区间 [1000, 2000) 编码为 10 字节后解析回")
+    void sackSingleBlockRoundTrip() {
+        TcpOption sack = TcpOption.sack(new SackBlock(1000, 2000));
+        assertEquals(TcpOption.KIND_SACK, sack.kind());
+        assertEquals(10, sack.length(), "2(头) + 8(一块) = 10 字节");
+
+        List<TcpOption> parsed = TcpOption.parse(sack.encode(List.of(sack)), 0, 10);
+        assertEquals(1, parsed.size());
+        List<SackBlock> blocks = parsed.get(0).sackBlocks();
+        assertEquals(1, blocks.size());
+        assertEquals(1000, blocks.get(0).leftEdge());
+        assertEquals(2000, blocks.get(0).rightEdge());
+        assertEquals(1000, blocks.get(0).size());
+        assertEquals("SACK", parsed.get(0).kindName());
+    }
+
+    @Test
+    @DisplayName("SACK 块字节布局：每块 8 字节大端，左边界 + 右边界，NOP 填充到 12")
+    void sackBlockByteLayout() {
+        TcpOption sack = TcpOption.sack(new SackBlock(0x000003E8L, 0x000007D0L)); // 1000, 2000
+        byte[] encoded = sack.encode(List.of(sack));
+        assertArrayEquals(new byte[]{0x05, 0x0A, 0x00, 0x00, 0x03, (byte) 0xE8, 0x00, 0x00, 0x07, (byte) 0xD0,
+                        0x01, 0x01},
+                encoded, "kind=5, len=10, 左 1000(03E8) 右 2000(07D0)，10 字节对齐到 12（末尾 2 个 NOP）");
+        assertEquals("SACK", sack.kindName());
+    }
+
+    @Test
+    @DisplayName("SACK 多块往返：3 个乱序区间，第一块是最近收到的段")
+    void sackMultipleBlocksRoundTrip() {
+        // 场景：发送序号 1000~4000，接收方只收到 1000~2000、2500~2600、3000~3500
+        // （中间 2000~2500、2600~3000 丢失）；第一个块是含最大序号的最近接收段
+        List<SackBlock> received = List.of(
+                new SackBlock(3000, 3500),  // 最近（最大序号）
+                new SackBlock(2500, 2600),
+                new SackBlock(1000, 2000));
+        TcpOption sack = TcpOption.sack(received.toArray(new SackBlock[0]));
+        assertEquals(26, sack.length(), "2 + 3×8 = 26 字节");
+
+        List<TcpOption> parsed = TcpOption.parse(sack.encode(List.of(sack)), 0, 26);
+        assertEquals(1, parsed.size());
+        List<SackBlock> blocks = parsed.get(0).sackBlocks();
+        assertEquals(3, blocks.size());
+        assertEquals(3000, blocks.get(0).leftEdge());
+        assertEquals(3500, blocks.get(0).rightEdge());
+        assertEquals(2500, blocks.get(1).leftEdge());
+        assertEquals(2000, blocks.get(2).rightEdge());
+    }
+
+    @Test
+    @DisplayName("序号回绕：跨 2^32 边界的块 [0xFFFFFFF0, 0x10) 长度与包含判断正确")
+    void sackBlockWraparound() {
+        SackBlock wrap = new SackBlock(0xFFFF_FFF0L, 0x10);
+        assertEquals(32, wrap.size(), "(0x10 - 0xFFFFFFF0) 按模 2^32 = 32");
+        assertTrue(wrap.contains(0xFFFF_FFF0L), "左边界在区间内");
+        assertTrue(wrap.contains(0L), "回绕后的序号 0 在区间内");
+        assertTrue(wrap.contains(0x0FL), "0x0F 是最后一个字节");
+        org.junit.jupiter.api.Assertions.assertFalse(wrap.contains(0x10L), "右边界是开区间，不含");
+
+        TcpOption sack = TcpOption.sack(wrap);
+        List<TcpOption> parsed = TcpOption.parse(sack.encode(List.of(sack)), 0, sack.length());
+        assertEquals(new SackBlock(0xFFFF_FFF0L, 0x10), parsed.get(0).sackBlocks().get(0));
+    }
+
+    @Test
+    @DisplayName("SACK 与 MSS 组合：4+34=38 字节对齐到 40（选项区域上限）")
+    void sackCombinedWithMss() {
+        List<TcpOption> options = List.of(
+                TcpOption.mss(1460),
+                TcpOption.sack(new SackBlock(3000, 3500), new SackBlock(1000, 2000),
+                        new SackBlock(5000, 6000), new SackBlock(7000, 7500)));
+        assertEquals(40, TcpOption.totalLength(options), "4 + (2+32) = 38 对齐到 40");
+
+        byte[] encoded = TcpOption.encode(options);
+        assertEquals(40, encoded.length);
+        List<TcpOption> parsed = TcpOption.parse(encoded, 0, encoded.length);
+        assertEquals(2, parsed.size());
+        assertEquals(1460, parsed.get(0).shortValue());
+        assertEquals(4, parsed.get(1).sackBlocks().size());
+    }
+
+    @Test
+    @DisplayName("非法 SACK 构造被拒绝：0 块、5 块、空块（左右相等）")
+    void invalidSackRejected() {
+        assertThrows(IllegalArgumentException.class, () -> TcpOption.sack(), "至少要一个块");
+        assertThrows(IllegalArgumentException.class,
+                () -> TcpOption.sack(new SackBlock(1, 2), new SackBlock(3, 4), new SackBlock(5, 6),
+                        new SackBlock(7, 8), new SackBlock(9, 10)), "最多 4 个块");
+        assertThrows(IllegalArgumentException.class, () -> new SackBlock(100, 100), "空块");
+        assertThrows(IllegalArgumentException.class, () -> new SackBlock(-1, 100), "负数越界");
+        assertThrows(IllegalArgumentException.class,
+                () -> new SackBlock(0, 0x1_0000_0000L), "超出 32 位");
+    }
+
+    @Test
+    @DisplayName("非法 SACK 报文被拒绝：Value 长度不是 8 的倍数、非 SACK 选项调用解析")
+    void invalidSackBlockRejected() {
+        // kind=5, len=6, value 4 字节——不是 8 的倍数，解析块时拒绝
+        TcpOption malformed = new TcpOption(TcpOption.KIND_SACK, 6, new byte[4]);
+        assertThrows(IllegalArgumentException.class, malformed::sackBlocks);
+
+        TcpOption mss = TcpOption.mss(1460);
+        assertThrows(IllegalStateException.class, mss::sackBlocks, "非 SACK 选项不能解析块");
+    }
 }

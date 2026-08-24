@@ -13,6 +13,7 @@
 | `packet/IpHeader` | 网络层 IPv4 首部：版本(4 bit) + IHL(4 bit) 挤同一字节、总长度、**分片三件套（标识/标志/片偏移）**、TTL、协议号、源/目的 IP | 20 字节最小（IHL×4） |
 | `packet/TcpHeader` | 传输层 TCP 首部：源/目的端口、序号、确认号、**数据偏移(4 bit)+标志位(8 个)**、窗口、**伪首部校验和**、**选项字段** | 20 字节最小 |
 | `packet/TcpOption` | TCP 选项：MSS/Window Scale/SACK-Permitted/时间戳 的构造、**NOP 对齐编码**与按 Kind/Length 解析 | 变长（最多 40 字节） |
+| `packet/SackBlock` | **SACK 块**：乱序确认区间 `[leftEdge, rightEdge)`（各 4 字节大端），**32 位序号回绕处理**（模 2^32 的长度/包含判断），配合 `TcpOption.sack()` / `sackBlocks()` 编解码 | 8 字节/块 |
 | `packet/UdpHeader` | 传输层 UDP 首部：源/目的端口、长度、**伪首部校验和（IPv4 可选）** | 8 字节固定 |
 | `packet/Checksums` | **校验和工具（RFC 1071 反码和）**：IP 首部校验和、TCP/UDP 伪首部校验和、整体验证（反码和为 0xFFFF） | — |
 | `packet/IcmpHeader` | 网络层 ICMP 首部：**类型/代码/校验和**/标识/序号（ping 的报文） | 8 字节固定 |
@@ -143,7 +144,7 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.t
 | 2 | **MSS** | 4 | 协商最大报文段，**SYN 里必带**，双方取小。1460 = 1500(MTU) − 20(IP) − 20(TCP) |
 | 3 | Window Scale | 3 | 窗口左移 N 位放大（16 bit 不够用，最大可到 1GB） |
 | 4 | SACK-Permitted | 2 | 声明支持选择性确认（丢包只重传丢失段，不用全部重传） |
-| 5 | SACK | 变长 | 告知对端哪些段已收到（乱序到达时用） |
+| 5 | SACK | 变长 | 告知对端哪些段已收到（乱序到达时用），**每块 8 字节 = 左边界 4 + 右边界 4**（`SackBlock`） |
 | 8 | Timestamp | 10 | 算 RTT、防序号回绕（PAWS） |
 
 关键理解：
@@ -151,6 +152,18 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.t
 - 带 MSS 的 SYN：选项 4 字节 → dataOffset=6 → 首部 24 字节（`TcpHeader.withOptions` 自动计算）。
 - 选项参与 TCP 校验和（整个首部按实际长度算），篡改选项会被接收方发现。
 - 选项区域最多 40 字节（dataOffset 4 bit 上限 15 → (15−5)×4）。
+
+**SACK 块（`packet/SackBlock`，kind=5 的 Value 部分）——乱序确认区间：**
+
+```text
+一个块 8 字节: [左边界(4)][右边界(4)]    区间是右开的: [leftEdge, rightEdge)
+左边界 = 块内第一个字节的序号；右边界 = 块内最后一个字节的序号 + 1
+```
+
+- **场景**：接收方收到 1000~2000 和 3000~4000（中间 2000~3000 丢了），普通 ACK 序号只能表达累计确认，无法描述「哪些不连续的区域到了」→ 用 SACK 块列表补上。发送方据此**只重传丢失的段**（快重传/快恢复的精细化，高带宽高延迟链路收益巨大）。
+- **块的数量**：选项区域最多 40 字节，一个块 8 字节 → 最多 4 个块（2 + 4×8 = 34 字节）；第一个块是**最近收到的段**（含最大序号）。
+- **序号回绕**：序号是 32 位循环的（4GB 后回绕），块边界按模 2^32 比较，允许跨回绕点的块（如 `[0xFFFFFFF0, 0x10)`，长度 32）。
+- **面试常问**：SACK 只告诉发送方「哪些**到了**」，不告诉「哪些丢了」——丢失区间要靠对块之间的**空隙**推断；且 SACK 不能替代 ACK，累计确认仍由 ACK 序号负责（SACK 选项总是和 ACK 一起出现）。
 
 ### 3. 为什么 TCP 有粘包、UDP 没有
 
@@ -470,7 +483,7 @@ HTTP 是浏览器与服务器之间的文本协议，报文由「起始行 + 头
 | 测试类 | 验证内容 | 不验证的内容 |
 |--------|----------|--------------|
 | `TcpHeaderTest`（12） | 编码/解析往返、8 个标志位（含 URG/CWR/ECE）字节位置、数据偏移决定首部长度、**带选项首部（MSS/多选项/越界拒绝/选项参与校验和）** | 真实网络行为 |
-| `TcpOptionTest`（11） | MSS/WS/SACK/时间戳 构造、NOP 对齐编码、EOL 终止、多选项组合、非法长度拒绝、未知 Kind 透传 | 真实 TCP 协商 |
+| `TcpOptionTest`（18） | MSS/WS/SACK/时间戳 构造、NOP 对齐编码、EOL 终止、多选项组合、非法长度拒绝、未知 Kind 透传、**SACK 块（单块/多块/字节布局/序号回绕/MSS 组合上限/非法构造与报文拒绝）** | 真实 TCP 协商 |
 | `UdpHeaderTest`（3） | 8 字节固定、大端字节序、负载长度计算 | 丢包/乱序 |
 | `IpHeaderTest`（9） | 版本+IHL 位字段、点分十进制互转、IP 每段 0~255 校验、分片三件套编解码与非法参数 | 真实路由/分片 |
 | `ChecksumTest`（11） | RFC 1071 IP 官方向量、反码和折叠、奇数长度补 0、TCP/UDP 伪首部校验和向量与整体验证、伪首部/数据参与校验 | 真实抓包校验 |
@@ -492,7 +505,7 @@ HTTP 是浏览器与服务器之间的文本协议，报文由「起始行 + 头
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 183 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 190 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -522,7 +535,8 @@ HTTP 是浏览器与服务器之间的文本协议，报文由「起始行 + 头
 16. 给 `HttpResponse` 增加同样的多值头支持（`Map<String, List<String>>`，如多个 `Set-Cookie`），补测试（对照 `HttpRequest` 的实现）。
 17. 给 `MinimalHttpClient` 增加 **chunked 传输编码解析**：按 `5\r\nhello\r\n0\r\n\r\n` 的块格式循环读块直到 `0` 块，支持真实的 `Transfer-Encoding: chunked` 响应（提示：读头时先按块声明长度逐块收，别按 Content-Length）。
 18. 给 `MinimalHttpClient` 增加 **Keep-Alive 连接复用**：同一 Socket 连续发多个请求，靠 Content-Length 切分每条响应，最后一条才发 `Connection: close`（对照 `FrameCodec` 的累积解码思路）。
-17. 用 `HttpResponse` 构造一个 304 Not Modified 响应（含 `ETag` 头），并演示 `If-None-Match` 请求头命中时返回 304 的判据。
+19. 用 `HttpResponse` 构造一个 304 Not Modified 响应（含 `ETag` 头），并演示 `If-None-Match` 请求头命中时返回 304 的判据。
+20. 给 `SackBlock` 增加「丢包区间推断」：给定发送序号范围与多个 SACK 块，找出**没被任何块覆盖的间隙**（即需要重传的段），补测试（提示：对块按左边界排序后扫描空隙，注意与发送范围取交集）。
 
 ## 📄 关联模块
 
