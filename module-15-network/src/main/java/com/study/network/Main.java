@@ -168,10 +168,10 @@ public class Main {
         System.out.println();
 
         // 6.3 HTTP：应用层请求/响应报文（请求行 + 状态行 + 头部，行结束符 CRLF）
-        Map<String, String> reqHeaders = new LinkedHashMap<>();
-        reqHeaders.put("Host", "www.example.com");
-        reqHeaders.put("User-Agent", "study-client/1.0");
-        reqHeaders.put("Connection", "keep-alive");
+        Map<String, List<String>> reqHeaders = new LinkedHashMap<>();
+        reqHeaders.put("Host", List.of("www.example.com"));
+        reqHeaders.put("User-Agent", List.of("study-client/1.0"));
+        reqHeaders.put("Connection", List.of("keep-alive"));
         HttpRequest httpRequest = new HttpRequest("GET", "/index.html", "HTTP/1.1",
                 reqHeaders, "");
         String httpReqText = httpRequest.encode();
