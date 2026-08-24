@@ -2,6 +2,7 @@
 
 > module-18-bouncy-castle 配套的选型速查文档：从「要解决什么问题」出发给算法选型与对照。
 > 完整演示代码见 `module-18-bouncy-castle` 各 Demo 类，算法清单与核心概念见该模块 README。
+> 配套文档：[网络协议选型速查表](network-cheatsheet.md)（module-15）。
 
 ## 0. 三问选型法
 

@@ -513,7 +513,8 @@ close()       <────────────────────  读
 
 ## 🌐 协议使用场景（选型速查）
 
-> 从「要解决什么问题」出发：可靠性/延迟/寻址/诊断各选什么协议。与 module-18 的密码学选型速查（[docs/crypto-cheatsheet.md](../docs/crypto-cheatsheet.md)）同理，这里是网络协议版。
+> 从「要解决什么问题」出发：可靠性/延迟/寻址/诊断各选什么协议。独立速查文档见 [docs/network-cheatsheet.md](../../docs/network-cheatsheet.md)；
+> 密码学选型见 [docs/crypto-cheatsheet.md](../../docs/crypto-cheatsheet.md)（module-18），两者互相对应。
 
 | 协议/技术 | 适用场景 | 典型应用 |
 |---|---|---|
