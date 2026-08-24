@@ -6,6 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 
+import org.bouncycastle.crypto.AsymmetricCipherKeyPair;
+import org.bouncycastle.crypto.params.ECPrivateKeyParameters;
+import org.bouncycastle.crypto.params.ECPublicKeyParameters;
 import org.junit.jupiter.api.Test;
 
 class SignatureDemoTest {
@@ -43,5 +46,50 @@ class SignatureDemoTest {
     @Test
     void sm3withSm2() {
         assertSignVerify("EC", 0, "SM3withSM2");
+    }
+
+    // ============ BC 底层 API 的 SM2 签名（对照 JCE 方式） ============
+
+    @Test
+    void lowLevelSm2RoundTrip() {
+        AsymmetricCipherKeyPair pair = SignatureDemo.sm2KeyPair();
+        ECPrivateKeyParameters priv = (ECPrivateKeyParameters) pair.getPrivate();
+        ECPublicKeyParameters pub = (ECPublicKeyParameters) pair.getPublic();
+        byte[] sig = SignatureDemo.sm2Sign(priv, DATA);
+        assertTrue(SignatureDemo.sm2Verify(pub, DATA, sig), "底层 SM2 验签失败");
+        assertFalse(SignatureDemo.sm2Verify(pub, (DATA + "!").getBytes(StandardCharsets.UTF_8), sig),
+                "篡改数据不应通过");
+    }
+
+    @Test
+    void lowLevelSignsOnSm2Curve() {
+        // 底层方式必须用国密推荐曲线 sm2p256v1（256 位域），与 JCE 方式（secp256r1）区分
+        AsymmetricCipherKeyPair pair = SignatureDemo.sm2KeyPair();
+        ECPublicKeyParameters pub = (ECPublicKeyParameters) pair.getPublic();
+        assertTrue(pub.getParameters().getCurve().getFieldSize() == 256);
+    }
+
+    @Test
+    void crossInteropLowLevelToJce() {
+        // 互操作 1：底层签名，转成 JCE 密钥后用 JCE 接口验签
+        AsymmetricCipherKeyPair bcPair = SignatureDemo.sm2KeyPair();
+        ECPrivateKeyParameters bcPriv = (ECPrivateKeyParameters) bcPair.getPrivate();
+        byte[] lowSig = SignatureDemo.sm2Sign(bcPriv, DATA);
+        KeyPair jcePair = SignatureDemo.toJceKeyPair(bcPair);
+        String sigHex = java.util.HexFormat.of().formatHex(lowSig);
+        assertTrue(SignatureDemo.verify("SM3withSM2", jcePair, DATA, sigHex),
+                "底层签名应能被 JCE 接口验证");
+    }
+
+    @Test
+    void crossInteropJceToLowLevel() {
+        // 互操作 2：JCE 签名，转成底层参数后用底层 API 验签
+        AsymmetricCipherKeyPair bcPair = SignatureDemo.sm2KeyPair();
+        KeyPair jcePair = SignatureDemo.toJceKeyPair(bcPair);
+        String jceSig = SignatureDemo.sign("SM3withSM2", jcePair, DATA);
+        AsymmetricCipherKeyPair bcFromJce = SignatureDemo.toBcKeyPair(jcePair);
+        ECPublicKeyParameters pub = (ECPublicKeyParameters) bcFromJce.getPublic();
+        assertTrue(SignatureDemo.sm2Verify(pub, DATA, java.util.HexFormat.of().parseHex(jceSig)),
+                "JCE 签名应能被底层 API 验证");
     }
 }

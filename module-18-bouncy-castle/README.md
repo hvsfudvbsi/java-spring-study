@@ -16,14 +16,14 @@
 | `asymmetric` | `Sm2Demo` | 国密 SM2 加解密（C1C3C2）、SM3withSM2 签名 |
 | `mac` | `HmacDemo` | HMAC-MD5 / SHA-256 / SHA-512 |
 | `mac` | `CmacDemo` | AES-CMAC（基于分组密码的 MAC） |
-| `signature` | `SignatureDemo` | RSA-SHA256 / ECDSA / DSA / Ed25519 / **SM3withSM2** |
+| `signature` | `SignatureDemo` | RSA-SHA256 / ECDSA / DSA / Ed25519 / **SM3withSM2**（JCE 与 BC 底层 API 双实现 + 互操作） |
 | `key` | `KeyManagementDemo` | 密钥生成、DER / Base64 / PEM 编码与解析还原 |
 | `key` | `KeyAgreementDemo` | DH-2048 / ECDH(P-256) 密钥协商 |
 | `gm` | `GmDemo` | 国密专题：SM2+SM3+SM4 **数字信封**全链路 |
 | `cert` | `CertificateDemo` | X.509 证书：CA 自签名根证书、签发服务器证书、信任链/有效期/签名验证 |
 | `cert` | `Pkcs12Demo` | PKCS#12 密钥库：私钥+证书链打包（.p12 字节流）、读回还原、口令保护 |
 
-测试：`src/test/java/com/study/bc/**` 共 **63 个**（每个算法往返、篡改检测、错钥/错数据拒绝、已知向量、证书链/密钥库）。
+测试：`src/test/java/com/study/bc/**` 共 **67 个**（每个算法往返、篡改检测、错钥/错数据拒绝、已知向量、证书链/密钥库、SM2 底层/互操作）。
 
 ## 二、运行方式
 
@@ -81,6 +81,14 @@ mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.
 私钥签名、公钥验签 → 完整性 + 认证 + 不可否认。本模块覆盖 RSA / ECDSA / DSA / Ed25519 /
 国密 SM3withSM2 五种；Ed25519 与 SM3withSM2 需要 BC provider。
 
+**SM2 签名双实现对照**（`SignatureDemo`）：
+
+- **JCE 方式**：`Signature.getInstance("SM3withSM2")`，经 BC provider（演示用 secp256r1 密钥）。
+- **BC 底层 API**：`SM2Signer` + `SM3Digest` 直接驱动算法核心，密钥用国密推荐曲线 **sm2p256v1**（`GMNamedCurves`）。
+- **互操作验证**：两种方式签名格式兼容（都是 DER 编码 (r, s)，默认用户 ID `1234567812345678` 一致），
+  底层签名可转 JCE 密钥验签、JCE 签名可转底层参数验签（`toJceKeyPair`/`toBcKeyPair` 双向转换：
+  `EC5Util.convertToSpec`/`convertPoint` + `PrivateKeyInfoFactory`/`ECUtil.generatePublicKeyParameter`）。
+
 ### 8. 密钥编码
 
 - **DER**：二进制（X.509/PKCS#8），紧凑。
@@ -124,9 +132,10 @@ mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.
 7. 给 `CertificateDemo` 增加 **二级 CA 链**：根 CA 签发中间 CA，中间 CA 再签发服务器证书（验证时需构建完整证书链而非单 TrustAnchor）。
 8. 给 `Pkcs12Demo` 增加**写文件版本**：把 `toPkcs12` 输出写入 `.p12` 文件，再用 `keytool -list` 或 openssl 命令行读取验证。
 9. 给 `CertificateDemo` 增加 **证书吊销（CRL/OCSP）** 演示：签发吊销列表并让 PKIX 验证拒绝已吊销证书。
+10. 给 `SignatureDemo` 的底层 SM2 签名增加 **原始 (r, s) 输出**（非 DER 包装）：用 `SM2Signer` 的 `PlainDERTBCObject`/手工拆分，对比 JCE 输出格式差异。
 
 ## 五、验证
 
-- `mvn test -pl module-18-bouncy-castle`：63 个测试全绿。
+- `mvn test -pl module-18-bouncy-castle`：67 个测试全绿。
 - 全量 `mvn clean verify`：BUILD SUCCESS、0 checkstyle 违规。
 - 实际运行 `Main`：8 个小节全部往返验证通过（哈希向量、AES 四模式、SM2/SM3/SM4 信封、签名五种、PEM 还原、DH/ECDH 协商一致、CA 签发与信任链、PKCS#12 打包还原）。
