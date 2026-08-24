@@ -1,11 +1,13 @@
 package com.study.network;
 
+import com.study.network.ip.SubnetCalculator;
 import com.study.network.packet.EthernetFrame;
 import com.study.network.packet.IcmpHeader;
 import com.study.network.packet.IpHeader;
 import com.study.network.packet.PacketParser;
 import com.study.network.packet.TcpHeader;
 import com.study.network.packet.UdpHeader;
+import com.study.network.protocol.TcpCongestionControl;
 import com.study.network.protocol.TcpStateMachine;
 import com.study.network.protocol.TransportProtocol;
 import com.study.network.socket.TcpStickyPacketDemo;
@@ -25,6 +27,8 @@ import com.study.network.socket.TcpStickyPacketDemo;
  *   6. 完整报文分层解析（以太网 -> IP -> TCP/UDP/ICMP）
  *   7. TCP 三次握手/四次挥手状态机演示
  *   8. TCP 粘包 vs UDP 有边界演示
+ *   9. IP 子网划分/CIDR 计算演示
+ *   10. TCP 拥塞控制（慢启动/拥塞避免/超时/快重传）演示
  */
 public class Main {
 
@@ -91,6 +95,13 @@ public class Main {
 
         // 8. TCP 粘包 vs UDP 有边界
         TcpStickyPacketDemo.main(new String[]{});
+        System.out.println();
+
+        // 9. IP 子网划分/CIDR 计算
+        SubnetCalculator.printSubnetDemo();
+
+        // 10. TCP 拥塞控制（慢启动/拥塞避免/超时/快重传/快恢复）
+        TcpCongestionControl.printDemo();
     }
 
     private static byte[] concat(byte[]... arrays) {

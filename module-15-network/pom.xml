@@ -16,7 +16,7 @@
     -->
     <artifactId>module-15-network</artifactId>
     <name>module-15-network</name>
-    <description>计算机网络：分层模型、TCP/UDP 报文格式与首部位字段解析、原生 Socket 编程</description>
+    <description>计算机网络：分层模型、TCP/UDP 报文格式与首部位字段解析、子网划分/CIDR、TCP 拥塞控制、原生 Socket 编程</description>
 
     <dependencies>
         <!-- Java 21 下生成临时自签名证书（与 module-11 一致，仅学习用途） -->

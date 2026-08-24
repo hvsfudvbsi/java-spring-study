@@ -42,13 +42,25 @@
 | `socket/framed/FramedTcpServer` + `FramedTcpClient` | **多线程帧协议服务器**：每连接一线程，按长度头拆帧回声 |
 | `tls/TlsHandshakeDemo` | **纯 JDK TLS 握手详解**：SSLSocket 真实握手，打印 ClientHello→Finished 报文与协商结果 | javax.net.debug 跟踪、SSLContext/KeyStore/自签名证书、SSLSession |
 
+### 第四部分：IP 地址与子网划分（CIDR）
+
+| 类 | 内容 |
+|----|------|
+| `ip/SubnetCalculator` | **CIDR 子网计算器**：前缀↔掩码互转、网络/广播地址、主机范围、可用主机数、归属判断（路由表匹配）、等分子网划分（如 /24 切成 4 个 /26） |
+
+### 第五部分：TCP 拥塞控制
+
+| 类 | 内容 |
+|----|------|
+| `protocol/TcpCongestionControl` | **TCP Reno 拥塞控制模拟**：慢启动（指数增长）、拥塞避免（线性增长）、超时（全盘重来）、快重传/快恢复（3 个重复 ACK）、有效窗口 min(cwnd, rwnd) |
+
 ## 🚀 运行方式
 
 ```bash
 # 测试（报文解析 + TCP/UDP 回环集成测试）
 mvn test -pl module-15-network
 
-# 运行全部演示（对比表 + 报文解析 + 粘包演示）
+# 运行全部演示（对比表 + 报文解析 + 粘包 + 子网划分 + 拥塞控制）
 mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.Main
 
 # 单独运行 TCP 回显（两个终端）
@@ -164,7 +176,58 @@ ICMP 首部 8 字节：`[类型(8)][代码(8)][校验和(16)][标识(16)][序号
 
 本模块的 `TcpHeader` 可构造 SYN/FIN/ACK 报文观察标志位，`TcpStateMachine` 可模拟完整状态流转；真实抓包用 `tcpdump`/Wireshark（或 `curl -v`）。
 
-### 6. TLS 握手：应用层加密通道的建立（对应 `tls/TlsHandshakeDemo`）
+### 6. IP 地址与子网划分（对应 `ip/SubnetCalculator`）
+
+CIDR 用「网络地址 + 前缀长度」（如 `192.168.1.0/24`）描述一个子网：前 24 位是网络位，后 8 位是主机位。
+
+**核心计算（面试手算题）：**
+
+| 要算什么 | 公式 | /24 例子 |
+|---------|------|---------|
+| 子网掩码 | 前 prefix 位为 1、其余为 0 | 255.255.255.0 |
+| 网络地址 | IP & 掩码（主机位清零） | 192.168.1.0 |
+| 广播地址 | 网络地址 或上 主机位全 1 | 192.168.1.255 |
+| 可用主机数 | 2^(32-prefix) - 2 | 254 台 |
+| 第一个可用 IP | 网络地址 + 1 | 192.168.1.1 |
+| 最后一个可用 IP | 广播地址 - 1 | 192.168.1.254 |
+
+**关键理解：**
+- 网络地址与广播地址**不能**分配给主机：网络地址标识子网本身，广播地址发给子网内所有主机。
+- 判断 IP 是否属于某子网 = `IP & 掩码 == 网络地址`，这正是路由器查表匹配的过程。
+- 经典边界：**/30 可用 2 台**（点对点链路，如公网段）、**/31 可用 2 台**（RFC 3021，PPP 点对点，无网络/广播地址）、**/32 可用 1 台**（单主机路由，云上单机 IP 常用）。
+- 等分子网：把 /24 切成 4 个 /26（2^(26-24) 个），每个跨度 64 个地址；只能切小不能合并。
+- 私有地址段（面试常问）：10.0.0.0/8、172.16.0.0/12、192.168.0.0/16。
+
+`SubnetCalculator` 可算出任意前缀的掩码/网络/广播/主机范围，`split` 可做等分子网划分，`contains` 演示路由表归属判断。
+
+### 7. TCP 拥塞控制（对应 `protocol/TcpCongestionControl`）
+
+**最容易混淆的两个窗口（面试第一问）：**
+
+| 窗口 | 谁维护 | 防什么 | 单位 |
+|------|--------|--------|------|
+| rwnd（接收窗口） | 接收方告知 | 防止发送方淹没**接收方**（对端缓冲区） | 字节 |
+| cwnd（拥塞窗口） | 发送方自己维护 | 防止发送方淹没**网络**（中间路由器队列） | MSS |
+
+发送方实际能发的数据量 = **min(cwnd, rwnd)**（有效窗口），同时受接收方能力和网络承载能力限制。
+
+**拥塞控制四大算法（TCP Reno，cwnd 每 RTT 更新一次）：**
+
+```text
+① 慢启动 Slow Start        cwnd 每 RTT 翻倍（1→2→4→8→16）：快速探测带宽，达到 ssthresh 转入②
+② 拥塞避免 Congestion       cwnd 每 RTT +1（16→17→18）：接近瓶颈时线性试探
+③ 超时（RTO 到期）         ssthresh=cwnd/2，cwnd=1：最严重拥塞信号，全盘重来
+④ 快重传+快恢复（3 个重复 ACK） ssthresh=cwnd/2，cwnd=ssthresh+3：网络还能通，不归零
+```
+
+**为什么要有 ③ 和 ④ 两种丢包处理（面试常问）：**
+- **超时**：报文可能在网络中排队很久甚至被丢弃，网络可能已严重拥塞 → 必须把 cwnd 打回 1 重新慢启动。
+- **3 个重复 ACK**：说明后续数据还能正常到达（只是某个段丢了/乱序），网络仍通 → 只把 cwnd 砍半，进入快恢复，收到新 ACK 后收敛回 ssthresh 进入拥塞避免，避免吞吐量断崖式下跌。
+- 快恢复期间每多收一个重复 ACK，cwnd 临时 +1（补偿已发到网络中的数据）。
+
+典型 cwnd 曲线：慢启动指数上升 → 拥塞避免线性上升 → 超时掉回 1 → 再次慢启动 → 3 个重复 ACK 只砍半不归零。`TcpCongestionControl` 用「状态 + 事件」完整模拟这条曲线（`onRttAcknowledged`/`onTimeout`/`onDuplicateAck`/`onNewAck`），配合 `TcpStateMachine`（连接状态）可理解 TCP 从建连、传输到断连的全过程。
+
+### 8. TLS 握手：应用层加密通道的建立（对应 `tls/TlsHandshakeDemo`）
 
 HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是客户端与服务端**协商参数 + 互相证明身份**的过程，运行 `TlsHandshakeDemo`（纯 JDK `SSLSocket`）会开启 JSSE 握手跟踪（`javax.net.debug=ssl:handshake`），打印 TLS 1.3 每一步的真实报文：
 
@@ -197,12 +260,14 @@ HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是�
 | `PacketParserTest`（4） | 完整报文 TCP/UDP/**ICMP** 分层解析、未知协议拒绝 | 真实抓包 |
 | `TransportProtocolTest`（4） | TCP/UDP 属性与首部长度对比、协议号反查 | — |
 | `TcpStateMachineTest`（12） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、非法转换拒绝 | 真实网络时序 |
+| `SubnetCalculatorTest`（15） | 掩码转换、网络/广播地址、主机范围、可用主机数（含 /30、/31、/32 边界）、归属判断、等分子网 | 真实路由表 |
+| `TcpCongestionControlTest`（13） | 慢启动指数增长、拥塞避免线性增长、超时重置、快重传/快恢复、有效窗口 min(cwnd, rwnd)、参数校验 | 真实网络拥塞 |
 | `SocketIntegrationTest`（4） | **真实回环** TCP/UDP 回显、粘包 vs 有边界 | 跨主机网络 |
 | `FrameCodecTest`（9） | 长度头编码、粘包多帧、拆包等待、长度头分批、非法超长拒绝 | 真实网络 |
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 61 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 90 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -220,6 +285,10 @@ HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是�
 4. 用 `tcpdump -i lo port 19001` 抓包观察三次握手，对照 `TcpHeader` 的标志位。
 5. 给 `TcpStateMachine` 增加 `RST` 事件（连接重置）：ESTABLISHED + RST → 直接 CLOSED，补测试。
 6. 给 `IcmpHeader` 增加校验和计算：`checksum = 反码和(首部 + 数据)`，构造合法校验和并验证往返一致。
+7. 给 `SubnetCalculator` 增加私有地址判断（`isPrivateIp`）：10.0.0.0/8、172.16.0.0/12、192.168.0.0/16 返回 true，补测试。
+8. 给 `TcpCongestionControl` 增加 `ssthresh` 手动设置方法（模拟丢包前人为调低阈值），验证慢启动提前转入拥塞避免。
+9. 用 `SubnetCalculator.split` 把 10.0.0.0/8 等分成 256 个 /16，验证第一个是 10.0.0.0/16、最后一个是 10.255.0.0/16。
+10. 给 `TcpCongestionControl` 增加慢启动阈值翻倍（RFC 5681 的 exponential increase）：`ssthresh = min(ssthresh*2, cwnd)`，超时恢复后加速追回带宽。
 
 ## 📄 关联模块
 
