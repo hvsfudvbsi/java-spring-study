@@ -20,6 +20,8 @@
 | `packet/PacketParser` | 完整报文分层解析：**先按 EtherType 分派（0x0800=IPv4 / 0x0806=ARP）**，再按协议号分派 TCP/UDP/ICMP → 负载（模拟 Wireshark 逐层剥离） | — |
 | `packet/DnsHeader` | 应用层 DNS 头部：事务 ID、标志（QR/Opcode/**AA/TC/RD/RA**/RCODE）、四类记录计数 | 12 字节固定 |
 | `packet/DnsQuestion` | 应用层 DNS 查询记录：**QNAME 标签编码**（`[3]www[7]example[3]com[0]`）、QTYPE/QCLASS | 变长（域名 + 4） |
+| `packet/HttpRequest` | 应用层 HTTP 请求：**请求行**（方法 URI 版本）+ 头部 + 空行 + 请求体（Content-Length 校验） | 文本行（CRLF） |
+| `packet/HttpResponse` | 应用层 HTTP 响应：**状态行**（版本 状态码 原因短语）+ 头部 + 空行 + 响应体，状态码语义 | 文本行（CRLF） |
 
 **首部长度速记**：以太网 14 < UDP 8？不——UDP 8 字节是首部，以太网 14 字节是帧头，两者不同层。同层对比：**TCP 20+ vs UDP 8**。
 
@@ -413,6 +415,40 @@ DNS 把域名解析成 IP 地址（www.example.com -> 93.184.216.34），是浏�
 - 响应里的域名可**压缩**：重复出现的名字写一个 0xC0 开头的 2 字节指针指向报文前面出现过的位置（省空间）；查询记录里不会出现，本模块解析到会明确拒绝（见 `DnsQuestion` 注释）。
 - 本模块 `DnsHeader` + `DnsQuestion` 可独立编解码一条完整 DNS 查询（`Main` 演示：头部 12 字节 + 查询记录 21 字节 = 33 字节）。
 
+### 13. HTTP：应用层请求/响应报文（对应 `packet/HttpRequest` + `packet/HttpResponse`）
+
+HTTP 是浏览器与服务器之间的文本协议，报文由「起始行 + 头部 + 空行 + 主体」组成（行结束符 CRLF）：
+
+```text
+请求:  GET /index.html HTTP/1.1\r\n        <- 请求行：方法 SP URI SP 版本
+       Host: www.example.com\r\n           <- 头部：字段名: 值（名字不区分大小写）
+       \r\n                                <- 空行：头部结束（必须有）
+       请求体（GET 通常为空）
+
+响应:  HTTP/1.1 200 OK\r\n               <- 状态行：版本 SP 状态码 SP 原因短语
+       Content-Type: text/html\r\n
+       Content-Length: 13\r\n
+       \r\n
+       <h1>Hello</h1>                      <- 响应体
+```
+
+**状态码语义（面试必背，按百位记）：**
+
+| 类别 | 含义 | 典型状态码 |
+|------|------|-----------|
+| 1xx | 信息 | 100 Continue |
+| 2xx | 成功 | 200 OK、201 Created、204 No Content |
+| 3xx | 重定向 | 301 永久、302 临时、**304 未修改（走缓存，性能优化点）** |
+| 4xx | 客户端错误 | 400 格式错误、401 未认证、403 禁止、404 不存在 |
+| 5xx | 服务端错误 | 500 内部错误、502 网关错误、503 服务不可用 |
+
+关键理解（面试常问）：
+- **HTTP 无状态**：服务器不保存客户端状态，靠 Cookie/Session 维持会话（见 module-03）。
+- **Content-Length 与粘包**：HTTP/1.1 默认 Keep-Alive 复用连接，响应长度靠 Content-Length（或 chunked）切分，否则无法判断响应何时结束——这就是粘包问题在 HTTP 里的表现（对应本模块粘包章节）。
+- 状态码 3 位数字 + 原因短语配套：程序看状态码、人看原因短语；原因短语可以含空格（如 Not Found）。
+- HTTP/1.1 vs 1.0：1.1 默认长连接、支持 Host 头（一台服务器多个域名）、支持 chunked/断点续传。
+- 本模块只做协议解析；真实 HTTP 服务（Netty 版 `/hello`、`/health` 路由）见 module-11。
+
 ## 🧪 测试
 
 | 测试类 | 验证内容 | 不验证的内容 |
@@ -428,6 +464,8 @@ DNS 把域名解析成 IP 地址（www.example.com -> 93.184.216.34），是浏�
 | `ArpHeaderTest`（6） | 28 字节固定、请求/回复操作码、字段位置、偏移解析、非法参数 | 真实 ARP 广播 |
 | `DnsHeaderTest`（8） | 12 字节固定、查询/响应工厂、标志位字节布局、TC/RA 组合、NXDOMAIN、偏移解析、非法参数 | 真实 DNS 服务器 |
 | `DnsQuestionTest`（8） | 标签编码（[3]www[7]example[3]com[0]）、往返、QTYPE 描述、紧跟头部解析、压缩指针拒绝、非法域名 | 真实域名解析 |
+| `HttpRequestTest`（8） | 请求行/头部/请求体往返、POST+Content-Length、头部大小写不敏感、LF 容错、顺序保持、非法报文拒绝 | 真实浏览器/服务器 |
+| `HttpResponseTest`（7） | 状态行（含空格原因短语）往返、状态码语义/类别、自动补原因短语、2xx 判断、非法状态行拒绝、body 含换行 | 真实浏览器/服务器 |
 | `TransportProtocolTest`（4） | TCP/UDP 属性与首部长度对比、协议号反查 | — |
 | `TcpStateMachineTest`（27） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、**RST 连接重置（拒绝/重置/忽略）**、**半开连接检测（SYN 重传超时/计数重置/非法状态）**、**keep-alive 假死检测（探测超时/对端响应重置/非法状态）**、非法转换拒绝 | 真实网络时序 |
 | `SubnetCalculatorTest`（15） | 掩码转换、网络/广播地址、主机范围、可用主机数（含 /30、/31、/32 边界）、归属判断、等分子网 | 真实路由表 |
@@ -437,7 +475,7 @@ DNS 把域名解析成 IP 地址（www.example.com -> 93.184.216.34），是浏�
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 161 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 176 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -464,6 +502,8 @@ DNS 把域名解析成 IP 地址（www.example.com -> 93.184.216.34），是浏�
 13. 给 `ArpHeader` 增加「免费 ARP」构造助手（`gratuitous()`：发送方=目标，opcode=1），并用 `PacketParser` 验证能解析回同样的 IP->MAC 映射。
 14. 给 `DnsQuestion` 增加「多问题报文解析」：构造 QDCOUNT=2 的报文（两个不同域名），用 `parseAt` 连续解析并断言两次都正确。
 15. 给 `DnsHeader` 增加 `withId(int)` 拷贝方法，并演示「改事务 ID 后原响应校验失败」（模拟 DNS 伪造防护）。
+16. 给 `HttpRequest` 增加多值头支持（`Map<String, List<String>>`，如多个 Cookie），并补一个「重复头部解析」测试。
+17. 用 `HttpResponse` 构造一个 304 Not Modified 响应（含 `ETag` 头），并演示 `If-None-Match` 请求头命中时返回 304 的判据。
 
 ## 📄 关联模块
 

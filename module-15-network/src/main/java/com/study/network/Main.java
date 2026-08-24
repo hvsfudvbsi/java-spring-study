@@ -1,6 +1,8 @@
 package com.study.network;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.study.network.ip.SubnetCalculator;
 import com.study.network.packet.ArpHeader;
@@ -8,6 +10,8 @@ import com.study.network.packet.Checksums;
 import com.study.network.packet.DnsHeader;
 import com.study.network.packet.DnsQuestion;
 import com.study.network.packet.EthernetFrame;
+import com.study.network.packet.HttpRequest;
+import com.study.network.packet.HttpResponse;
 import com.study.network.packet.IcmpHeader;
 import com.study.network.packet.IpHeader;
 import com.study.network.packet.PacketParser;
@@ -37,6 +41,7 @@ import com.study.network.socket.TcpStickyPacketDemo;
  *   6. 完整报文分层解析（以太网 -> IP -> TCP/UDP/ICMP）
  *   6.1 ARP 报文解析（EtherType=0x0806，不经过 IP 层）
  *   6.2 DNS 查询报文（12 字节头部 + QNAME 标签编码的查询记录）
+ *   6.3 HTTP 请求/响应报文解析（应用层收尾：请求行 + 状态行 + 头部）
  *   7. TCP 状态机演示：三次握手/四次挥手 + RST 连接重置
  *      + 半开连接检测（SYN 重传超时）+ keep-alive 假死检测（探测超时）
  *   8. TCP 粘包 vs UDP 有边界演示
@@ -160,6 +165,32 @@ public class Main {
         DnsQuestion.ParsedQuestion parsedDns = DnsQuestion.parseAt(dnsBytes, DnsHeader.HEADER_LENGTH);
         System.out.println("  查询: " + parsedDns.question()
                 + "（记录占 " + parsedDns.bytesConsumed() + " 字节）");
+        System.out.println();
+
+        // 6.3 HTTP：应用层请求/响应报文（请求行 + 状态行 + 头部，行结束符 CRLF）
+        Map<String, String> reqHeaders = new LinkedHashMap<>();
+        reqHeaders.put("Host", "www.example.com");
+        reqHeaders.put("User-Agent", "study-client/1.0");
+        reqHeaders.put("Connection", "keep-alive");
+        HttpRequest httpRequest = new HttpRequest("GET", "/index.html", "HTTP/1.1",
+                reqHeaders, "");
+        String httpReqText = httpRequest.encode();
+        System.out.println("HTTP 请求报文（" + httpReqText.length() + " 字符）:");
+        System.out.println(httpReqText.replace("\r\n", "⏎\n"));
+        System.out.println("解析回: " + HttpRequest.parse(httpReqText));
+
+        Map<String, String> respHeaders = new LinkedHashMap<>();
+        respHeaders.put("Content-Type", "text/html; charset=utf-8");
+        respHeaders.put("Content-Length", "13");
+        HttpResponse httpResponse = new HttpResponse("HTTP/1.1", 200, "OK",
+                respHeaders, "<h1>Hello</h1>");
+        String httpRespText = httpResponse.encode();
+        System.out.println("HTTP 响应报文:");
+        System.out.println(httpRespText.replace("\r\n", "⏎\n"));
+        System.out.println("解析回: " + HttpResponse.parse(httpRespText));
+        System.out.println("状态码速查: 404=" + HttpResponse.reason(404)
+                + ", 500=" + HttpResponse.reason(500)
+                + ", 301=" + HttpResponse.reason(301));
         System.out.println();
 
         // 7. TCP 状态机：三次握手/四次挥手 + RST 连接重置 + 半开连接检测（SYN 重传超时）
