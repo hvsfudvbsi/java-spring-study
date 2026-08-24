@@ -140,4 +140,49 @@ class TcpStateMachineTest {
     void hasAllElevenStates() {
         assertEquals(11, TcpStateMachine.allStates().size());
     }
+
+    // ---- RST 连接重置 ----
+
+    @Test
+    @DisplayName("端口未监听：SYN_SENT 收到 RST 直接 CLOSED（Connection refused）")
+    void rstDuringSynSent() {
+        TcpStateMachine client = new TcpStateMachine(TcpState.SYN_SENT);
+        assertEquals(TcpState.CLOSED, client.apply(TcpEvent.RECV_RST));
+    }
+
+    @Test
+    @DisplayName("对端强杀：ESTABLISHED 收到 RST 直接 CLOSED（Connection reset by peer）")
+    void rstDuringEstablished() {
+        TcpStateMachine established = new TcpStateMachine(TcpState.ESTABLISHED);
+        assertEquals(TcpState.CLOSED, established.apply(TcpEvent.RECV_RST));
+    }
+
+    @Test
+    @DisplayName("挥手中途收到 RST：FIN_WAIT_1 / FIN_WAIT_2 / CLOSE_WAIT / LAST_ACK 都直接 CLOSED")
+    void rstDuringClose() {
+        TcpStateMachine fw1 = new TcpStateMachine(TcpState.FIN_WAIT_1);
+        assertEquals(TcpState.CLOSED, fw1.apply(TcpEvent.RECV_RST));
+        TcpStateMachine fw2 = new TcpStateMachine(TcpState.FIN_WAIT_2);
+        assertEquals(TcpState.CLOSED, fw2.apply(TcpEvent.RECV_RST));
+        TcpStateMachine cw = new TcpStateMachine(TcpState.CLOSE_WAIT);
+        assertEquals(TcpState.CLOSED, cw.apply(TcpEvent.RECV_RST));
+        TcpStateMachine la = new TcpStateMachine(TcpState.LAST_ACK);
+        assertEquals(TcpState.CLOSED, la.apply(TcpEvent.RECV_RST));
+    }
+
+    @Test
+    @DisplayName("LISTEN 收到 RST 丢弃并继续监听，不影响已有连接")
+    void rstDuringListenIgnored() {
+        TcpStateMachine server = new TcpStateMachine(TcpState.LISTEN);
+        assertEquals(TcpState.LISTEN, server.apply(TcpEvent.RECV_RST));
+    }
+
+    @Test
+    @DisplayName("TIME_WAIT 不受 RST 影响：2MSL 固定等待，RST 不能提前结束")
+    void rstCannotShortenTimeWait() {
+        TcpStateMachine closer = new TcpStateMachine(TcpState.TIME_WAIT);
+        assertThrows(IllegalStateException.class, () -> closer.apply(TcpEvent.RECV_RST));
+        // 只能等 2MSL 超时后关闭
+        assertEquals(TcpState.CLOSED, closer.apply(TcpEvent.TIMEOUT_2MSL));
+    }
 }

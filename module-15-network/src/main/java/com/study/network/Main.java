@@ -1,6 +1,7 @@
 package com.study.network;
 
 import com.study.network.ip.SubnetCalculator;
+import com.study.network.packet.ArpHeader;
 import com.study.network.packet.Checksums;
 import com.study.network.packet.EthernetFrame;
 import com.study.network.packet.IcmpHeader;
@@ -28,7 +29,8 @@ import com.study.network.socket.TcpStickyPacketDemo;
  *   5. 以太网帧头 14 字节
  *   5.1 ICMP 首部（ping 请求，类型/代码/校验和）
  *   6. 完整报文分层解析（以太网 -> IP -> TCP/UDP/ICMP）
- *   7. TCP 三次握手/四次挥手状态机演示
+ *   6.1 ARP 报文解析（EtherType=0x0806，不经过 IP 层）
+ *   7. TCP 三次握手/四次挥手状态机 + RST 连接重置演示
  *   8. TCP 粘包 vs UDP 有边界演示
  *   9. IP 子网划分/CIDR 计算演示
  *   10. TCP 拥塞控制（慢启动/拥塞避免/超时/快重传）演示
@@ -113,8 +115,27 @@ public class Main {
         System.out.println("  负载 " + parsed.payloadLength() + " 字节");
         System.out.println();
 
-        // 7. TCP 三次握手 / 四次挥手状态机
+        // 6.1 ARP：广播询问「谁是 192.168.1.1」（目标 MAC 全 0，EtherType=0x0806）
+        ArpHeader arpRequest = new ArpHeader(
+                ArpHeader.HARDWARE_ETHERNET, ArpHeader.PROTOCOL_IPV4, 6, 4,
+                ArpHeader.OPCODE_REQUEST,
+                EthernetFrame.parseMac("AA:BB:CC:DD:EE:FF"), IpHeader.parseIp("192.168.1.10"),
+                EthernetFrame.parseMac("00:00:00:00:00:00"), IpHeader.parseIp("192.168.1.1"));
+        EthernetFrame arpEth = new EthernetFrame(
+                EthernetFrame.parseMac("FF:FF:FF:FF:FF:FF"), // 广播地址
+                EthernetFrame.parseMac("AA:BB:CC:DD:EE:FF"),
+                EthernetFrame.ETHERTYPE_ARP);
+        byte[] arpBytes = concat(arpEth.encode(), arpRequest.encode());
+        PacketParser.ParsedPacket parsedArp = PacketParser.parse(arpBytes);
+        System.out.println("ARP 帧 " + arpBytes.length + " 字节，分层解析:");
+        System.out.println("  第 1 层 以太网: " + parsedArp.ethernet());
+        System.out.println("  第 2 层 ARP:   " + parsedArp.transport()
+                + "（isArp=" + parsedArp.isArp() + ", ip=" + parsedArp.ip() + "）");
+        System.out.println();
+
+        // 7. TCP 三次握手 / 四次挥手状态机 + RST 连接重置
         TcpStateMachine.printHandshakeDemo();
+        TcpStateMachine.printRstDemo();
         System.out.println();
 
         // 8. TCP 粘包 vs UDP 有边界

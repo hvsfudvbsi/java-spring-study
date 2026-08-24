@@ -107,10 +107,52 @@ class PacketParserTest {
     }
 
     @Test
-    @DisplayName("未知协议号抛 IllegalArgumentException")
+    @DisplayName("未知 IP 协议号抛 IllegalArgumentException")
     void parseRejectsUnknownProtocol() {
-        IpHeader ip = new IpHeader(4, 5, 20 + 20, 1, 64, 99, 0, 0, 0);
-        byte[] frame = concat(new byte[14], ip.encode(), new byte[20]);
+        EthernetFrame eth = new EthernetFrame(
+                EthernetFrame.parseMac("00:11:22:33:44:55"),
+                EthernetFrame.parseMac("66:77:88:99:AA:BB"),
+                EthernetFrame.ETHERTYPE_IPV4);
+        IpHeader ip = new IpHeader(4, 5, 20 + 20, 1, 64, 99, 0, 0, 0); // 协议号 99 未定义
+        byte[] frame = concat(eth.encode(), ip.encode(), new byte[20]);
+        assertThrows(IllegalArgumentException.class, () -> PacketParser.parse(frame));
+    }
+
+    // ---- 按 EtherType 分派 + ARP ----
+
+    @Test
+    @DisplayName("ARP 请求帧：EtherType=0x0806 分派到 ARP，不经过 IP 层")
+    void parseArpRequest() {
+        EthernetFrame eth = new EthernetFrame(
+                EthernetFrame.parseMac("FF:FF:FF:FF:FF:FF"), // 广播
+                EthernetFrame.parseMac("AA:BB:CC:DD:EE:FF"),
+                EthernetFrame.ETHERTYPE_ARP);
+        ArpHeader arp = new ArpHeader(
+                ArpHeader.HARDWARE_ETHERNET, ArpHeader.PROTOCOL_IPV4, 6, 4,
+                ArpHeader.OPCODE_REQUEST,
+                EthernetFrame.parseMac("AA:BB:CC:DD:EE:FF"), IpHeader.parseIp("192.168.1.10"),
+                EthernetFrame.parseMac("00:00:00:00:00:00"), IpHeader.parseIp("192.168.1.1"));
+
+        byte[] frame = concat(eth.encode(), arp.encode());
+        PacketParser.ParsedPacket parsed = PacketParser.parse(frame);
+
+        assertEquals(EthernetFrame.ETHERTYPE_ARP, parsed.ethernet().etherType());
+        assertTrue(parsed.isArp(), "应按 EtherType 识别为 ARP");
+        assertEquals(null, parsed.ip(), "ARP 不经过 IP 层，ip() 为 null");
+        ArpHeader parsedArp = (ArpHeader) parsed.transport();
+        assertEquals(ArpHeader.OPCODE_REQUEST, parsedArp.opcode());
+        assertEquals("192.168.1.1", IpHeader.toIpString(parsedArp.targetIp()));
+        assertEquals(0, parsed.payloadLength());
+    }
+
+    @Test
+    @DisplayName("未知 EtherType（如 IPv6 0x86DD）抛 IllegalArgumentException")
+    void parseRejectsUnknownEtherType() {
+        EthernetFrame eth = new EthernetFrame(
+                EthernetFrame.parseMac("00:11:22:33:44:55"),
+                EthernetFrame.parseMac("66:77:88:99:AA:BB"),
+                0x86DD); // IPv6：本模块暂不支持
+        byte[] frame = concat(eth.encode(), new byte[20]);
         assertThrows(IllegalArgumentException.class, () -> PacketParser.parse(frame));
     }
 }

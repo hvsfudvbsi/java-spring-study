@@ -15,7 +15,8 @@
 | `packet/UdpHeader` | 传输层 UDP 首部：源/目的端口、长度、**伪首部校验和（IPv4 可选）** | 8 字节固定 |
 | `packet/Checksums` | **校验和工具（RFC 1071 反码和）**：IP 首部校验和、TCP/UDP 伪首部校验和、整体验证（反码和为 0xFFFF） | — |
 | `packet/IcmpHeader` | 网络层 ICMP 首部：**类型/代码/校验和**/标识/序号（ping 的报文） | 8 字节固定 |
-| `packet/PacketParser` | 完整报文分层解析：以太网 → IP → TCP/UDP/ICMP → 负载（模拟 Wireshark 逐层剥离） | — |
+| `packet/ArpHeader` | **链路层 ARP 报文**：硬件/协议类型、地址长度、操作码（请求/回复）、发送方/目标 MAC+IP（以太网+IPv4 固定 28 字节） | 28 字节固定 |
+| `packet/PacketParser` | 完整报文分层解析：**先按 EtherType 分派（0x0800=IPv4 / 0x0806=ARP）**，再按协议号分派 TCP/UDP/ICMP → 负载（模拟 Wireshark 逐层剥离） | — |
 
 **首部长度速记**：以太网 14 < UDP 8？不——UDP 8 字节是首部，以太网 14 字节是帧头，两者不同层。同层对比：**TCP 20+ vs UDP 8**。
 
@@ -136,6 +137,8 @@ mvn compile exec:java -pl module-15-network -Dexec.mainClass=com.study.network.t
 
 ICMP 首部 8 字节：`[类型(8)][代码(8)][校验和(16)][标识(16)][序号(16)]`。
 
+ICMP 首部 8 字节：`[类型(8)][代码(8)][校验和(16)][标识(16)][序号(16)]`。
+
 | 类型 | 含义 | 典型场景 |
 |------|------|---------|
 | 0 | Echo Reply（回显应答） | ping 成功返回 |
@@ -145,7 +148,36 @@ ICMP 首部 8 字节：`[类型(8)][代码(8)][校验和(16)][标识(16)][序号
 
 关键理解：ICMP 封装在 IP 数据报里（IP 协议号 = 1），但它**不是传输层协议**——没有端口号、不承载应用数据，只是网络层的控制/诊断报文。`PacketParser` 按协议号分派：1=ICMP、6=TCP、17=UDP。
 
-### 5. 三次握手与四次挥手（配合首部理解）
+### 5. ARP：根据 IP 地址找到 MAC 地址（对应 `packet/ArpHeader`）
+
+IP 地址是**端到端**的、MAC 地址是**逐跳**的：发数据前必须知道下一跳的 MAC。
+ARP（地址解析协议）解决「已知 IP、求 MAC」：
+
+```text
+① 广播请求：谁是 192.168.1.1？  ->  目标 MAC 填 FF:FF:FF:FF:FF:FF，发往整个子网
+② 单播应答：192.168.1.1 的 MAC 是 11:22:33:44:55:66  ->  只有目标主机应答
+③ 存入 ARP 缓存：IP->MAC 映射缓存几分钟，之后直接单播，不必每次广播
+```
+
+ARP 报文（以太网+IPv4 固定 28 字节）字段：
+
+| 字段 | 大小 | 典型值 | 含义 |
+|------|------|--------|------|
+| 硬件类型 | 2 字节 | 1 | 链路层类型（1 = 以太网） |
+| 协议类型 | 2 字节 | 0x0800 | 要解析的地址类型（IPv4） |
+| 硬件/协议地址长度 | 各 1 字节 | 6 / 4 | MAC 6 字节、IP 4 字节 |
+| 操作码 | 2 字节 | 1=请求 2=回复 | 广播询问 / 单播应答 |
+| 发送方 MAC + IP | 6 + 4 字节 | — | 请求方自己的地址 |
+| 目标 MAC + IP | 6 + 4 字节 | — | 请求时目标 MAC 为 0 |
+
+关键理解（面试常问）：
+- **ARP 只工作在同一个子网内**：跨子网数据先发给网关，网关的 MAC 也是用 ARP 解析的。
+- ARP 报文**不经过 IP 层**：直接封装在以太网帧里（EtherType=0x0806），所以 `PacketParser` 在解析 IP 之前先按 EtherType 分派。
+- 注意两个容易混淆的字段：以太网帧头的 EtherType=0x0806（表示帧里是 ARP），而 ARP 报文内部的协议类型=0x0800（表示要解析的是 IP 地址）。
+- **免费 ARP（Gratuitous ARP）**：主机主动广播自己的 IP->MAC 映射，用于 IP 冲突检测、故障切换。
+- 安全：ARP 无认证，可被伪造（ARP 欺骗/中间人），现代网络常用静态 ARP 或端口安全缓解。
+
+### 6. 三次握手与四次挥手（配合首部理解）
 
 ```text
 三次握手（建立连接）:  Client -> SYN        Server
@@ -175,9 +207,19 @@ ICMP 首部 8 字节：`[类型(8)][代码(8)][校验和(16)][标识(16)][序号
 - **被动关闭方没有 FIN_WAIT/TIME_WAIT**：收到 FIN 回 ACK 后进入 CLOSE_WAIT，等应用层关闭后发 FIN 进 LAST_ACK，收到 ACK 即 CLOSED。
 - 状态机拒绝非法转换：如 ESTABLISHED 再收 SYN、CLOSED 直接收 FIN 都会抛 `IllegalStateException`。
 
-本模块的 `TcpHeader` 可构造 SYN/FIN/ACK 报文观察标志位，`TcpStateMachine` 可模拟完整状态流转；真实抓包用 `tcpdump`/Wireshark（或 `curl -v`）。
+**RST（连接重置，面试常问）：** 除了 FIN 的优雅关闭，TCP 还有强制的 RST 重置。`TcpStateMachine` 已支持 `RECV_RST` 事件：
 
-### 6. IP 地址与子网划分（对应 `ip/SubnetCalculator`）
+| 场景 | 事件 → 状态 | 典型报错 |
+|------|------------|---------|
+| 端口未监听 | SYN_SENT + RST → CLOSED | Connection refused（连接被拒绝） |
+| 对端进程崩溃/异常退出 | ESTABLISHED + RST → CLOSED | Connection reset by peer |
+| 半开连接（对端已消失）收到数据 | 回 RST 通知对端连接不存在 | 写入已关闭的 socket |
+| 服务端 LISTEN 收到 RST | 丢弃，继续监听 | 不影响已有连接 |
+| TIME_WAIT 收到 RST | 忽略，2MSL 固定等待 | 不能提前结束 |
+
+本模块的 `TcpHeader` 可构造 SYN/FIN/ACK 报文观察标志位，`TcpStateMachine` 可模拟完整状态流转（含 RST 重置）；真实抓包用 `tcpdump`/Wireshark（或 `curl -v`）。
+
+### 7. IP 地址与子网划分（对应 `ip/SubnetCalculator`）
 
 CIDR 用「网络地址 + 前缀长度」（如 `192.168.1.0/24`）描述一个子网：前 24 位是网络位，后 8 位是主机位。
 
@@ -201,7 +243,7 @@ CIDR 用「网络地址 + 前缀长度」（如 `192.168.1.0/24`）描述一个�
 
 `SubnetCalculator` 可算出任意前缀的掩码/网络/广播/主机范围，`split` 可做等分子网划分，`contains` 演示路由表归属判断。
 
-### 7. TCP 拥塞控制（对应 `protocol/TcpCongestionControl`）
+### 8. TCP 拥塞控制（对应 `protocol/TcpCongestionControl`）
 
 **最容易混淆的两个窗口（面试第一问）：**
 
@@ -228,7 +270,7 @@ CIDR 用「网络地址 + 前缀长度」（如 `192.168.1.0/24`）描述一个�
 
 典型 cwnd 曲线：慢启动指数上升 → 拥塞避免线性上升 → 超时掉回 1 → 再次慢启动 → 3 个重复 ACK 只砍半不归零。`TcpCongestionControl` 用「状态 + 事件」完整模拟这条曲线（`onRttAcknowledged`/`onTimeout`/`onDuplicateAck`/`onNewAck`），配合 `TcpStateMachine`（连接状态）可理解 TCP 从建连、传输到断连的全过程。
 
-### 8. 校验和：IP 反码和 与 TCP/UDP 伪首部（对应 `packet/Checksums`）
+### 9. 校验和：IP 反码和 与 TCP/UDP 伪首部（对应 `packet/Checksums`）
 
 校验和算法（RFC 1071）三步：**16 bit 大端字累加 → 进位折叠回低 16 位 → 取反码**。
 校验时把「数据 + 算出的校验和」整体再算一遍，结果应为 `0xFFFF`（全 1），否则报文已损坏。
@@ -254,7 +296,7 @@ CIDR 用「网络地址 + 前缀长度」（如 `192.168.1.0/24`）描述一个�
 
 本模块 `TcpHeader.computeChecksum` / `UdpHeader.computeChecksum` 实现完整计算，`Checksums.verifyTransport` 实现整体验证。
 
-### 9. IP 分片与 MTU（对应 `packet/IpHeader` 分片字段）
+### 10. IP 分片与 MTU（对应 `packet/IpHeader` 分片字段）
 
 IP 报文超过链路 MTU（如以太网 1500 字节）时，路由器把报文切成多个**分片**分别转发，接收方重组。分片由首部三件套描述：
 
@@ -272,7 +314,7 @@ IP 报文超过链路 MTU（如以太网 1500 字节）时，路由器把报文�
 
 `IpHeader` 现支持分片字段的编码/解析（`FLAG_DF`/`FLAG_MF`、`withFragmentation`），`Main` 演示了 MF=1、片偏移 185 的分片报文。
 
-### 10. TLS 握手：应用层加密通道的建立（对应 `tls/TlsHandshakeDemo`）
+### 11. TLS 握手：应用层加密通道的建立（对应 `tls/TlsHandshakeDemo`）
 
 HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是客户端与服务端**协商参数 + 互相证明身份**的过程，运行 `TlsHandshakeDemo`（纯 JDK `SSLSocket`）会开启 JSSE 握手跟踪（`javax.net.debug=ssl:handshake`），打印 TLS 1.3 每一步的真实报文：
 
@@ -303,9 +345,10 @@ HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是�
 | `ChecksumTest`（11） | RFC 1071 IP 官方向量、反码和折叠、奇数长度补 0、TCP/UDP 伪首部校验和向量与整体验证、伪首部/数据参与校验 | 真实抓包校验 |
 | `EthernetFrameTest`（4） | 14 字节帧头、MAC 地址转换、EtherType | 真实网卡 |
 | `IcmpHeaderTest`（6） | ping 请求/回复往返、字段位置、类型名称、偏移解析 | 真实 ping 抓包 |
-| `PacketParserTest`（4） | 完整报文 TCP/UDP/**ICMP** 分层解析、未知协议拒绝 | 真实抓包 |
+| `PacketParserTest`（6） | 完整报文 TCP/UDP/**ICMP** 分层解析、**按 EtherType 分派 ARP**、未知协议/EtherType 拒绝 | 真实抓包 |
+| `ArpHeaderTest`（6） | 28 字节固定、请求/回复操作码、字段位置、偏移解析、非法参数 | 真实 ARP 广播 |
 | `TransportProtocolTest`（4） | TCP/UDP 属性与首部长度对比、协议号反查 | — |
-| `TcpStateMachineTest`（12） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、非法转换拒绝 | 真实网络时序 |
+| `TcpStateMachineTest`（17） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、**RST 连接重置（拒绝/重置/忽略）**、非法转换拒绝 | 真实网络时序 |
 | `SubnetCalculatorTest`（15） | 掩码转换、网络/广播地址、主机范围、可用主机数（含 /30、/31、/32 边界）、归属判断、等分子网 | 真实路由表 |
 | `TcpCongestionControlTest`（13） | 慢启动指数增长、拥塞避免线性增长、超时重置、快重传/快恢复、有效窗口 min(cwnd, rwnd)、参数校验 | 真实网络拥塞 |
 | `SocketIntegrationTest`（4） | **真实回环** TCP/UDP 回显、粘包 vs 有边界 | 跨主机网络 |
@@ -313,7 +356,7 @@ HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是�
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 105 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 118 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -329,7 +372,7 @@ HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是�
 2. 用 `PacketParser` 构造一个"IP + UDP + DNS 查询"报文，断言解析出 `destinationPort=53`。
 3. 给 `FramedTcpServer` 增加协议版本号：帧头改为 `[1 字节版本][4 字节长度][内容]`，不匹配的版本直接断开（提示：改 `FrameCodec.encode/decode` 并补测试）。
 4. 用 `tcpdump -i lo port 19001` 抓包观察三次握手，对照 `TcpHeader` 的标志位。
-5. 给 `TcpStateMachine` 增加 `RST` 事件（连接重置）：ESTABLISHED + RST → 直接 CLOSED，补测试。
+5. 给 `TcpStateMachine` 增加「半开连接检测」：SYN_SENT 状态重发 SYN 3 次仍无响应 → 直接 CLOSED（新增 `RETRANSMIT_TIMEOUT` 事件），补测试。
 6. 给 `IcmpHeader` 增加校验和计算：`checksum = 反码和(首部 + 数据)`，构造合法校验和并验证往返一致。
 7. 给 `SubnetCalculator` 增加私有地址判断（`isPrivateIp`）：10.0.0.0/8、172.16.0.0/12、192.168.0.0/16 返回 true，补测试。
 8. 给 `TcpCongestionControl` 增加 `ssthresh` 手动设置方法（模拟丢包前人为调低阈值），验证慢启动提前转入拥塞避免。
@@ -337,6 +380,7 @@ HTTPS 就是在 TCP 之上先做一次 TLS 握手、再加密传输。握手是�
 10. 给 `TcpCongestionControl` 增加慢启动阈值翻倍（RFC 5681 的 exponential increase）：`ssthresh = min(ssthresh*2, cwnd)`，超时恢复后加速追回带宽。
 11. 用 `tcpdump`/Wireshark 抓一个真实 TCP 包，把 IP 首部和 TCP 段的字节拷进测试，用 `Checksums` 验证校验和是否为 0xFFFF（理解校验和的实际用途）。
 12. 给 `IpHeader` 增加「分片重组」模拟：给定同一标识的多个分片（MF/片偏移不同），按片偏移拼接回原数据报并验证长度，补测试。
+13. 给 `ArpHeader` 增加「免费 ARP」构造助手（`gratuitous()`：发送方=目标，opcode=1），并用 `PacketParser` 验证能解析回同样的 IP->MAC 映射。
 
 ## 📄 关联模块
 

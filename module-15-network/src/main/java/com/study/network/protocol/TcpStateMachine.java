@@ -25,6 +25,15 @@ import java.util.Map;
  *   FIN_WAIT_1 --RECV_FIN--> CLOSING --RECV_ACK--> TIME_WAIT --TIMEOUT_2MSL--> CLOSED
  * </pre>
  *
+ * RST（连接重置）——为什么 TCP 需要它（面试常问）：
+ * - 端口未监听：客户端 SYN 到达无监听端口，内核直接回 RST，客户端 SYN_SENT + RST -> CLOSED，
+ *   这就是最常见的 "Connection refused（连接被拒绝）"。
+ * - 连接被对端强杀：进程崩溃/重启、程序异常退出时对端收 RST，ESTABLISHED + RST -> CLOSED，
+ *   即 "Connection reset by peer"。
+ * - 半开连接（对端已消失但本端不知情）收到数据时回 RST，通知对端"这条连接已经不存在了"。
+ * - LISTEN 状态下收到 RST 通常直接丢弃（继续监听），不影响已有连接。
+ * - TIME_WAIT 是终态前的固定等待（2MSL），不受 RST 影响、不能提前结束。
+ *
  * 学习点：
  * - 状态不是随便跳的：非法转换（如 ESTABLISHED 直接收到 SYN）抛 IllegalStateException。
  * - TIME_WAIT 是主动关闭方专有：等待 2 倍报文最大生存时间（2MSL），确保最后一个 ACK 到达。
@@ -56,6 +65,7 @@ public class TcpStateMachine {
         RECV_ACK,        // 收到 ACK
         SEND_FIN,        // 发送 FIN（主动关闭）
         RECV_FIN,        // 收到 FIN
+        RECV_RST,        // 收到 RST（连接重置：端口未监听/对端强杀/半开连接）
         TIMEOUT_2MSL     // TIME_WAIT 超时（2 倍报文最大生存时间）
     }
 
@@ -108,6 +118,17 @@ public class TcpStateMachine {
         table.get(TcpState.ESTABLISHED).put(TcpEvent.RECV_FIN, TcpState.CLOSE_WAIT);
         table.get(TcpState.CLOSE_WAIT).put(TcpEvent.SEND_FIN, TcpState.LAST_ACK);
         table.get(TcpState.LAST_ACK).put(TcpEvent.RECV_ACK, TcpState.CLOSED);
+        // RST（连接重置）：端口未监听/对端强杀/半开连接 -> 直接 CLOSED
+        // LISTEN 收到 RST 丢弃继续监听；TIME_WAIT 不受 RST 影响（2MSL 固定等待）
+        table.get(TcpState.LISTEN).put(TcpEvent.RECV_RST, TcpState.LISTEN);         // 丢弃，继续监听
+        table.get(TcpState.SYN_SENT).put(TcpEvent.RECV_RST, TcpState.CLOSED);       // Connection refused
+        table.get(TcpState.SYN_RECEIVED).put(TcpEvent.RECV_RST, TcpState.CLOSED);   // 连接被重置
+        table.get(TcpState.ESTABLISHED).put(TcpEvent.RECV_RST, TcpState.CLOSED);    // Connection reset by peer
+        table.get(TcpState.FIN_WAIT_1).put(TcpEvent.RECV_RST, TcpState.CLOSED);
+        table.get(TcpState.FIN_WAIT_2).put(TcpEvent.RECV_RST, TcpState.CLOSED);
+        table.get(TcpState.CLOSING).put(TcpEvent.RECV_RST, TcpState.CLOSED);
+        table.get(TcpState.CLOSE_WAIT).put(TcpEvent.RECV_RST, TcpState.CLOSED);
+        table.get(TcpState.LAST_ACK).put(TcpEvent.RECV_RST, TcpState.CLOSED);
         return table;
     }
 
@@ -176,6 +197,26 @@ public class TcpStateMachine {
         System.out.println("  被动方 " + peer.state() + " --RECV_FIN--> " + peer.apply(TcpEvent.RECV_FIN));
         System.out.println("  被动方 " + peer.state() + " --SEND_FIN--> " + peer.apply(TcpEvent.SEND_FIN));
         System.out.println("  被动方 " + peer.state() + " --RECV_ACK--> " + peer.apply(TcpEvent.RECV_ACK));
+    }
+
+    /** 打印 RST 重置演示（供 Main 调用）：Connection refused 与 Connection reset by peer。 */
+    public static void printRstDemo() {
+        System.out.println("================ TCP 状态机：RST 连接重置 ================");
+        // 场景 1：端口未监听 -> Connection refused
+        TcpStateMachine refused = new TcpStateMachine(TcpState.SYN_SENT);
+        System.out.println("  客户端 " + refused.state()
+                + " --RECV_RST--> " + refused.apply(TcpEvent.RECV_RST)
+                + "（端口未监听，内核回 RST -> Connection refused）");
+        // 场景 2：对端强杀/进程崩溃 -> Connection reset by peer
+        TcpStateMachine reset = new TcpStateMachine(TcpState.ESTABLISHED);
+        System.out.println("  已连接 " + reset.state()
+                + " --RECV_RST--> " + reset.apply(TcpEvent.RECV_RST)
+                + "（对端异常退出 -> Connection reset by peer）");
+        // 场景 3：LISTEN 收到 RST 直接丢弃，继续监听
+        TcpStateMachine listen = new TcpStateMachine(TcpState.LISTEN);
+        System.out.println("  服务端 " + listen.state()
+                + " --RECV_RST--> " + listen.apply(TcpEvent.RECV_RST) + "（丢弃，继续监听）");
+        System.out.println();
     }
 
     /** 打印所有状态名（供参考） */
