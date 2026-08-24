@@ -25,6 +25,9 @@ import org.bouncycastle.crypto.params.RSAKeyParameters;
  *       是现代推荐方案（RFC 8017）。</li>
  *   <li>RSA 加密长度受限：明文 ≤ 密钥字节数 - 填充开销（如 2048 位 + OAEP-SHA256 上限 190 字节）。</li>
  * </ul>
+ *
+ * <p>适用场景：证书体系（HTTPS）、密钥封装分发（加密对称密钥）、代码签名；
+ * 明文长度受限，大块数据应改用混合加密（对称加密 + RSA 包密钥）。
  */
 public final class RsaDemo {
 

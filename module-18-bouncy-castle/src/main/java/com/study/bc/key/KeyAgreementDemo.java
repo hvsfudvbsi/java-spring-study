@@ -16,6 +16,9 @@ import com.study.bc.BcSupport;
  *
  * <p>双方各自生成密钥对，交换公钥后各自计算得到**相同的共享秘密**，
  * 该秘密可派生对称密钥。安全性依赖离散对数/椭圆曲线离散对数难题。
+ *
+ * <p>适用场景：TLS 密钥交换（DHE/ECDHE）、端到端加密（Signal 等）、即时通信；
+ * 协商出的共享秘密再经 KDF 派生对称密钥。
  */
 public final class KeyAgreementDemo {
 

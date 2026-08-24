@@ -45,6 +45,9 @@ import com.study.bc.BcSupport;
  * </ul>
  * 两者签名格式兼容（都是 DER 编码的 (r, s)，默认用户 ID 1234567812345678），
  * 可互相验签（见 {@link #demo()} 互操作对照）。
+ *
+ * <p>适用场景：软件发布签名、电子合同/单据、代码签名等需要「完整性 + 认证 + 不可否认」的场景；
+ * 现代新系统首选 Ed25519，国密合规系统用 SM3withSM2。
  */
 public final class SignatureDemo {
 

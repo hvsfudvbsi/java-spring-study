@@ -17,6 +17,9 @@ import com.study.bc.BcSupport;
  *
  * <p>说明：ECC 用更短的密钥提供等效安全强度（256 位 ≈ RSA-3072），
  * 是现代 TLS/区块链的主流。演示采用 BC provider 的 secp256r1（P-256）曲线。
+ *
+ * <p>适用场景：TLS 证书与密钥交换（ECDH/ECDHE）、区块链、物联网等资源受限设备
+ * （密钥更短、计算更快）。
  */
 public final class EccDemo {
 

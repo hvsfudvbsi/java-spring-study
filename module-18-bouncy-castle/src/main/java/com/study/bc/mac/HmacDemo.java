@@ -17,6 +17,9 @@ import org.bouncycastle.crypto.params.KeyParameter;
  * <p>HMAC = H(key ⊕ opad || H(key ⊕ ipad || message))，带密钥的哈希，
  * 用于消息完整性 + 来源认证（共享密钥双方）。相比裸哈希，密钥参与计算，
  * 无法离线暴力破解，也不会被长度扩展攻击。
+ *
+ * <p>适用场景：API 签名（HMAC-SHA256）、JWT（HS256）、HOTP/TOTP 动态口令、
+ * 消息完整性认证（共享密钥的双方）。
  */
 public final class HmacDemo {
 

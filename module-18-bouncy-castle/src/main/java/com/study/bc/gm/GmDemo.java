@@ -22,6 +22,9 @@ import com.study.bc.symmetric.Sm4Demo;
  *   <li>SM2 对摘要签名（认证 + 防抵赖）。</li>
  * </ol>
  * 收方用 SM2 私钥解出 SM4 密钥 → SM4 解密数据 → SM3 重算摘要并验签，全链路闭环。
+ *
+ * <p>适用场景：国密合规的数据传输方案（标准报文、等保/密评场景）——
+ * 对称加密大块数据、非对称安全分发密钥、摘要 + 签名保证完整性与不可否认。
  */
 public final class GmDemo {
 

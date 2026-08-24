@@ -18,6 +18,9 @@ import org.bouncycastle.crypto.params.ParametersWithIV;
  *
  * <p>SM4 是国内商用密码标准分组算法，分组 128 位、密钥 128 位，
  * 与 AES-128 对标。本类演示 ECB / CBC / GCM 三种模式。
+ *
+ * <p>适用场景：国密合规系统的数据加密（金融/政务/无线局域网等），对标 AES-128；
+ * 生产建议用 GCM（认证加密）而非裸 CBC/ECB。
  */
 public final class Sm4Demo {
 

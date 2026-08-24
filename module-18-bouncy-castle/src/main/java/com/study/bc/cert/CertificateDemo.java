@@ -36,6 +36,9 @@ import com.study.bc.BcSupport;
  *   <li>验证：签名校验（公钥验签）、有效期检查、CertPathValidator 信任链验证；</li>
  *   <li>反例：篡改公钥的证书验签失败、过期证书有效期检查失败。</li>
  * </ol>
+ *
+ * <p>适用场景：HTTPS 服务器证书、代码签名、S/MIME 邮件、企业内部 PKI
+ * （CA 签发 + 信任链验证）。
  */
 public final class CertificateDemo {
 

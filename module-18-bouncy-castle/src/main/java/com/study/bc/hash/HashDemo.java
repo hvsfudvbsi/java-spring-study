@@ -16,6 +16,9 @@ import org.bouncycastle.crypto.digests.SM3Digest;
  *
  * <p>说明：MD5 与 SHA-1 已不推荐用于安全场景（碰撞/长度扩展攻击），此处仅作算法对比。
  * 密码存储应使用加盐 + 慢哈希（如 BCrypt/Argon2），本类用 SHA-256 + 随机盐演示思路。
+ *
+ * <p>适用场景：数据/文件完整性校验（SHA-256/SHA-3）、签名配套摘要、密码存储（加盐哈希）；
+ * 国密合规系统用 SM3；MD5/SHA-1 仅兼容遗留（不可用于安全）。
  */
 public final class HashDemo {
 

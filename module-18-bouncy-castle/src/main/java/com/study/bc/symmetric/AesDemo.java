@@ -26,6 +26,9 @@ import org.bouncycastle.crypto.params.ParametersWithIV;
  *   <li>CTR（SIC）：把 AES 变成流密码，按计数器加密，无需填充。</li>
  *   <li>GCM：认证加密（AEAD），密文附带认证标签，能检测篡改，现代首选。</li>
  * </ul>
+ *
+ * <p>适用场景：数据加密（TLS、数据库字段、文件存储）。GCM（认证加密）是现代首选；
+ * CBC/CTR 仅遗留（须另配 MAC 或保证 IV 不重复）；ECB 不应使用。
  */
 public final class AesDemo {
 

@@ -26,6 +26,9 @@ import com.study.bc.BcSupport;
  *   <li>Base64：DER 的文本化，便于 JSON/配置文件传输。</li>
  *   <li>PEM：Base64 + 头尾标记（BEGIN PUBLIC KEY 等），OpenSSL/证书体系标准格式。</li>
  * </ul>
+ *
+ * <p>适用场景：密钥存储与分发——PEM 与 OpenSSL/证书体系互操作，Base64 便于 JSON/配置传输，
+ * DER 用于紧凑二进制存储。
  */
 public final class KeyManagementDemo {
 

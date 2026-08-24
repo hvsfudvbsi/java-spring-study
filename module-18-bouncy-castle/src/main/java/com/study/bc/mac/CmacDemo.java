@@ -14,6 +14,9 @@ import org.bouncycastle.crypto.params.KeyParameter;
  * <p>CMAC = 用分组密码（如 AES）构造的 MAC，等价于 OMAC1（NIST SP 800-38B）。
  * 相比 HMAC 需要哈希函数，CMAC 只需一个分组密码原语，
  * 常用于嵌入式/受限环境与协议（如 SCTP、TLS 早期版本）。
+ *
+ * <p>适用场景：已有 AES 硬件加速的智能卡/嵌入式设备、不能引入哈希依赖的受限环境
+ * （NIST SP 800-38B 协议）；标签更短（16 字节），适合带宽敏感场景。
  */
 public final class CmacDemo {
 

@@ -18,6 +18,8 @@ import org.bouncycastle.crypto.params.ParametersWithIV;
  * <p>说明：DES 的 56 位密钥已可被暴力破解（1999 年 EFF 深钻机数小时攻破），
  * 3DES 用 3 个 DES 密钥（等效 112 位安全强度）作过渡，均被 AES 取代，
  * 此处仅作历史与兼容性学习。
+ *
+ * <p>适用场景：仅遗留兼容（旧金融系统、读卡器/EMV 过渡），新系统一律用 AES。
  */
 public final class DesDemo {
 

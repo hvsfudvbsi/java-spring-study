@@ -30,6 +30,9 @@ import org.bouncycastle.asn1.x9.X9ECParameters;
  *   <li>SM2 签名：SM3withSM2，签名是 (r, s) 两个 32 字节大数，共 64~65 字节。</li>
  *   <li>国密要求：用户身份标识 ID 参与签名（默认 1234567812345678）。</li>
  * </ul>
+ *
+ * <p>适用场景：国密 PKI（证书、身份认证、电子签章）、金融/政务合规场景；
+ * 对标 ECDSA/ECIES，加密 C1C3C2 自带完整性。
  */
 public final class Sm2Demo {
 

@@ -22,6 +22,9 @@ import com.study.bc.BcSupport;
  *   <li>内容：私钥（加密存储）+ 证书链（叶证书在前，根证书在后），整体由口令（password）保护；</li>
  *   <li>本演示用内存字节数组模拟文件，实际可把 {@link #toPkcs12} 的输出写入 .p12 文件。</li>
  * </ul>
+ *
+ * <p>适用场景：TLS 服务器密钥库（.p12）、浏览器证书导入、代码签名分发——
+ * 私钥与证书链打包成单文件，整体由口令保护。
  */
 public final class Pkcs12Demo {
 
