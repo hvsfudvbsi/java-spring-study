@@ -11,6 +11,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.security.AlgorithmParameters;
 import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -503,6 +504,104 @@ class JceProviderTest {
         Mac mac = Mac.getInstance("HmacSHA512");
         mac.init(sk);
         assertEquals(64, mac.doFinal(DATA).length);
+    }
+
+    // ==================== BC 独有 JCE 算法（仅 BC provider 提供） ====================
+
+    @Test
+    @DisplayName("Mac: HmacSM3（BC 独有）标签长度 32 字节，确定性输出一致")
+    void hmacSm3() throws Exception {
+        byte[] key = new byte[32];
+        RANDOM.nextBytes(key);
+        SecretKey sk = new SecretKeySpec(key, "HmacSM3");
+        Mac mac = Mac.getInstance("HmacSM3", "BC");
+        mac.init(sk);
+        byte[] t1 = mac.doFinal(DATA);
+        byte[] t2 = mac.doFinal(DATA);
+        assertEquals(32, t1.length);
+        assertArrayEquals(t1, t2);
+    }
+
+    @Test
+    @DisplayName("Mac: HmacSM3 不同密钥不同标签（抗碰撞）")
+    void hmacSm3WrongKey() throws Exception {
+        byte[] key = new byte[32];
+        RANDOM.nextBytes(key);
+        byte[] wrongKey = new byte[32];
+        RANDOM.nextBytes(wrongKey);
+        SecretKey sk = new SecretKeySpec(key, "HmacSM3");
+        Mac mac = Mac.getInstance("HmacSM3", "BC");
+        mac.init(sk);
+        byte[] t1 = mac.doFinal(DATA);
+        SecretKey wrongSk = new SecretKeySpec(wrongKey, "HmacSM3");
+        mac.init(wrongSk);
+        byte[] t2 = mac.doFinal(DATA);
+        assertFalse(java.util.Arrays.equals(t1, t2));
+    }
+
+    @Test
+    @DisplayName("MessageDigest: RIPEMD160（BC 独有）摘要 20 字节，确定性输出一致")
+    void ripemd160Digest() throws Exception {
+        MessageDigest md = MessageDigest.getInstance("RIPEMD160", "BC");
+        byte[] d1 = md.digest(DATA);
+        byte[] d2 = md.digest(DATA);
+        assertEquals(20, d1.length);
+        assertArrayEquals(d1, d2);
+    }
+
+    @Test
+    @DisplayName("MessageDigest: WHIRLPOOL（BC 独有）摘要 64 字节，确定性输出一致")
+    void whirlpoolDigest() throws Exception {
+        MessageDigest md = MessageDigest.getInstance("WHIRLPOOL", "BC");
+        byte[] d1 = md.digest(DATA);
+        byte[] d2 = md.digest(DATA);
+        assertEquals(64, d1.length);
+        assertArrayEquals(d1, d2);
+    }
+
+    @Test
+    @DisplayName("KeyGenerator: HmacSM3（BC 独有）生成密钥后 Mac 协同使用往返一致")
+    void hmacSm3KeyGeneratorThenMac() throws Exception {
+        KeyGenerator kg = KeyGenerator.getInstance("HmacSM3", "BC");
+        kg.init(256, RANDOM);
+        SecretKey key = kg.generateKey();
+        Mac mac = Mac.getInstance("HmacSM3", "BC");
+        mac.init(key);
+        byte[] t1 = mac.doFinal(DATA);
+        mac.init(key);
+        byte[] t2 = mac.doFinal(DATA);
+        assertArrayEquals(t1, t2);
+    }
+
+    @Test
+    @DisplayName("AlgorithmParameters: SM4（BC 独有）IV 编码后再解码得到相同 IV")
+    void sm4AlgorithmParameters() throws Exception {
+        byte[] iv = new byte[16];
+        RANDOM.nextBytes(iv);
+        AlgorithmParameters ap = AlgorithmParameters.getInstance("SM4", "BC");
+        ap.init(new IvParameterSpec(iv));
+        byte[] encoded = ap.getEncoded();
+        AlgorithmParameters ap2 = AlgorithmParameters.getInstance("SM4", "BC");
+        ap2.init(encoded);
+        assertArrayEquals(iv, ap2.getParameterSpec(IvParameterSpec.class).getIV());
+    }
+
+    @Test
+    @DisplayName("AlgorithmParameters: SM4 构造的 IV 参数传给 Cipher CBC，encrypt/decrypt 往返一致")
+    void sm4AlgorithmParametersWithCipher() throws Exception {
+        byte[] key = new byte[16];
+        RANDOM.nextBytes(key);
+        byte[] iv = new byte[16];
+        RANDOM.nextBytes(iv);
+        SecretKey sk = new SecretKeySpec(key, "SM4");
+        // 用 AlgorithmParameters 封装 IV 再传给 Cipher（与直接 new IvParameterSpec 等价）
+        AlgorithmParameters ap = AlgorithmParameters.getInstance("SM4", "BC");
+        ap.init(new IvParameterSpec(iv));
+        Cipher cipher = Cipher.getInstance("SM4/CBC/PKCS7Padding", "BC");
+        cipher.init(Cipher.ENCRYPT_MODE, sk, ap);
+        byte[] encrypted = cipher.doFinal(DATA);
+        cipher.init(Cipher.DECRYPT_MODE, sk, ap);
+        assertArrayEquals(DATA, cipher.doFinal(encrypted));
     }
 
     // ==================== KeyGenerator 对称密钥生成 ====================
