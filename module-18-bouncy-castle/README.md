@@ -22,13 +22,15 @@
 | `gm` | `GmDemo` | 国密专题：SM2+SM3+SM4 **数字信封**全链路 |
 | `cert` | `CertificateDemo` | X.509 证书：CA 自签名根证书、签发服务器证书、信任链/有效期/签名验证 |
 | `cert` | `Pkcs12Demo` | PKCS#12 密钥库：私钥+证书链打包（.p12 字节流）、读回还原、口令保护 |
+| `cms` | `CmsDemo` | CMS（RFC 5652）：数字信封 EnvelopedData（AES-GCM + RSA 密钥封装）、PKCS#7 签名（**attach 内嵌 / detach 分离**） |
+| `p10` | `CsrDemo` | PKCS#10（P10）：**CSR 构建**（Subject+公钥+SAN 扩展）、验签、**CA 基于 CSR 签发证书** |
 
-测试：`src/test/java/com/study/bc/**` 共 **73 个**（每个算法往返、篡改检测、错钥/错数据拒绝、已知向量、证书链/密钥库、SM2 底层/互操作、CBC 块翻转）。
+测试：`src/test/java/com/study/bc/**` 共 **85 个**（每个算法往返、篡改检测、错钥/错数据拒绝、已知向量、证书链/密钥库、SM2 底层/互操作、CBC 块翻转、CMS 信封与签名、PKCS#10 CSR）。
 
 ## 二、运行方式
 
 ```bash
-# 运行全部演示（7 个小节）
+# 运行全部演示（10 个小节）
 mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.Main
 
 # 单跑某个小节（如国密专题）
@@ -129,6 +131,35 @@ mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.
 - 注意：签发服务器证书时 Issuer DN 应直接复用 CA 证书的原始 Subject（X500Name 对象），
   避免「DN 字符串 → 再解析」往返改变编码导致 PKIX 链匹配失败。
 
+### 12. CMS 数字信封与 PKCS#7 签名（`cms/CmsDemo`）
+
+- **SignedData（PKCS#7 签名）**：`CMSSignedDataGenerator` + `JcaSignerInfoGeneratorBuilder`。
+  **attach（附件）**：`generate(data, true)` 把原文内嵌进签名（.p7m，验证无需另带原文）；
+  **detach（分离）**：`generate(data, false)` 只给签名（.p7s/.sig，原文另行传输，验证时
+  `new CMSSignedData(原文, 签名)` 关联）。验签用 `SignerInformation.verify(JcaSimpleSignerInfoVerifierBuilder)`。
+- **EnvelopedData（数字信封）**：`CMSEnvelopedDataGenerator` 随机生成对称密钥（AES-128-GCM）加密数据，
+  再用收件人 RSA 公钥封装该对称密钥（key transport），收件人私钥
+  `JceKeyTransEnvelopedRecipient` 解封——与国密 `GmDemo` 的 SM2+SM3+SM4 信封是同一思想，这里是标准 CMS 格式。
+- 适用：S/MIME 邮件签名/加密、PDF/代码签名（attach）、软件发布签名（detach .sig）、数据安全交换。
+
+### 13. PKCS#10（CSR / P10）与证书签发（`p10/CsrDemo`）
+
+真实 PKI 的「申请证书」一环（对应 openssl `req -new` 与 `x509 -req`）：
+
+```
+申请人: 自持私钥 -> 私钥签名「Subject DN + 公钥 + SAN 扩展」-> 生成 CSR（P10）
+CA:     用 CSR 内嵌公钥验签（证明申请人持有私钥）-> 用 CSR 的 Subject/公钥签发 X.509 证书
+```
+
+- **CSR 构建**：`JcaPKCS10CertificationRequestBuilder(X500Name, 公钥)` + `JcaContentSignerBuilder` 签名；
+  扩展放在 **extensionRequest 属性**（PKCS#9 OID `1.2.840.113549.1.9.14`）里：
+  `ExtensionsGenerator` 生成后 `addAttribute(PKCSObjectIdentifiers.pkcs_9_at_extensionRequest, exts)`，
+  读取用 `csr.getRequestedExtensions()`。
+- **验签**：`csr.isSignatureValid(JcaContentVerifierProviderBuilder)`——用 CSR 内嵌公钥验签，
+  证明申请人**确实持有对应私钥**（换公钥/篡改字节都验不过）。
+- **证书签发**：CA 用 `JcaX509v3CertificateBuilder` 取 CSR 的 Subject/公钥（沿用请求的 SAN 扩展）
+  签发证书返回申请人。私钥全程不出申请人本机。
+
 ## 四、动手练习
 
 1. ~~给 `AesDemo` 增加 **CBC 密文块翻转攻击演示**~~（已完成：`cbcBitFlip` 方法 + demo 演示 role=0→1 与 GCM 对照）→ 延伸：把攻击封装成 `CbcBitFlipAttack` 工具类，支持按**明文偏移**定位翻转（而非手算块/字节索引）。
@@ -141,6 +172,8 @@ mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.
 8. 给 `Pkcs12Demo` 增加**写文件版本**：把 `toPkcs12` 输出写入 `.p12` 文件，再用 `keytool -list` 或 openssl 命令行读取验证。
 9. 给 `CertificateDemo` 增加 **证书吊销（CRL/OCSP）** 演示：签发吊销列表并让 PKIX 验证拒绝已吊销证书。
 10. 给 `SignatureDemo` 的底层 SM2 签名增加 **原始 (r, s) 输出**（非 DER 包装）：用 `SM2Signer` 的 `PlainDERTBCObject`/手工拆分，对比 JCE 输出格式差异。
+11. 给 `CsrDemo` 增加 **PEM 输出版本**：CSR 与签发的证书导出 PEM（`BEGIN CERTIFICATE REQUEST`），用 `openssl req -verify -in csr.pem` 与 `openssl x509 -text -in cert.pem` 命令行对照验证。
+12. 给 `CmsDemo` 增加 **CMS 国密版**：用 SM2/SM3/SM4 构造 SignedData/EnvelopedData（对照 `GmDemo` 的手工信封，验证与标准 CMS 格式的异同）。
 
 ## 五、算法使用场景（选型指南）
 
@@ -170,6 +203,9 @@ mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.
 | SM2+SM3+SM4 信封 | 对称加密大块数据 + 非对称安全分发密钥 + 签名认证 | 国密标准报文、数据安全传输合规方案 |
 | X.509 证书 | 把公钥绑定到身份并构建信任链 | HTTPS 服务器证书、代码签名、S/MIME 邮件 |
 | PKCS#12 | 私钥 + 证书链的打包容器（.p12/.pfx） | TLS 服务器密钥库、浏览器证书导入、代码签名分发 |
+| CMS SignedData（PKCS#7） | 内容签名：attach 内嵌原文 / detach 分离签名 | S/MIME 邮件签名、PDF/代码签名、软件发布 .sig |
+| CMS EnvelopedData | 数字信封：对称加密数据 + 公钥封装对称密钥 | S/MIME 邮件加密、数据安全交换 |
+| PKCS#10（CSR/P10） | 证书申请：私钥自证持有 + CA 签发证书 | 证书申请自动化、企业 PKI 签发流程 |
 
 ### HMAC vs CMAC 怎么选
 
@@ -178,7 +214,7 @@ mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.
 
 ## 六、测试用例与守护场景
 
-> 73 个测试按包分组，每一行回答「这个用例在守护什么场景」。
+> 85 个测试按包分组，每一行回答「这个用例在守护什么场景」。
 
 ### hash — 哈希（6 个）
 
@@ -300,8 +336,24 @@ mvn compile exec:java -pl module-18-bouncy-castle -Dexec.mainClass=com.study.bc.
 |---|---|
 | 信封冒烟：SM2+SM3+SM4 全链路 | 国密合规方案基线：签名+加密+摘要组合正确 |
 
+### cms — CMS 数字信封与 PKCS#7 签名（7 个）
+
+| 测试 | 守护场景 |
+|---|---|
+| attach 往返 / 内嵌内容可提取 / 篡改签名失败 | 附件签名：原文内嵌、验证防篡改 |
+| detach 往返（带原文验证）/ 篡改原文失败 / 错公钥失败 / 签名比 attach 短 | 分离签名：原文另行传输、验签必须带原文 |
+| 信封往返（私钥解封一致）/ 错误私钥拒绝 | 数字信封：只有收件人私钥能解封（密钥封装安全） |
+
+### p10 — PKCS#10 CSR 与签发（5 个）
+
+| 测试 | 守护场景 |
+|---|---|
+| Subject/公钥/SAN 读取、无 SAN 空列表 | CSR 构建内容正确（extensionRequest 属性） |
+| 申请人公钥验签通过 / 他人公钥失败 / 篡改字节失败 | CSR 自证「确实持有私钥」 |
+| CA 签发证书（Subject/公钥/SAN 沿用、CA 验签、有效期） | 证书签发流程端到端 |
+
 ## 七、验证
 
-- `mvn test -pl module-18-bouncy-castle`：73 个测试全绿。
+- `mvn test -pl module-18-bouncy-castle`：85 个测试全绿。
 - 全量 `mvn clean verify`：BUILD SUCCESS、0 checkstyle 违规。
-- 实际运行 `Main`：8 个小节全部往返验证通过（哈希向量、AES 四模式、SM2/SM3/SM4 信封、签名五种、PEM 还原、DH/ECDH 协商一致、CA 签发与信任链、PKCS#12 打包还原）。
+- 实际运行 `Main`：10 个小节全部往返验证通过（哈希向量、AES 四模式、SM2/SM3/SM4 信封、签名五种、PEM 还原、DH/ECDH 协商一致、CA 签发与信任链、PKCS#12 打包还原、CMS 信封与 attach/detach 签名、CSR 构建验签与证书签发）。

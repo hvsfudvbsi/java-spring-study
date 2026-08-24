@@ -6,7 +6,9 @@ import com.study.bc.asymmetric.RsaDemo;
 import com.study.bc.asymmetric.Sm2Demo;
 import com.study.bc.cert.CertificateDemo;
 import com.study.bc.cert.Pkcs12Demo;
+import com.study.bc.cms.CmsDemo;
 import com.study.bc.gm.GmDemo;
+import com.study.bc.p10.CsrDemo;
 import com.study.bc.hash.HashDemo;
 import com.study.bc.key.KeyAgreementDemo;
 import com.study.bc.key.KeyManagementDemo;
@@ -34,6 +36,9 @@ import com.study.bc.symmetric.Sm4Demo;
  *   <li>数字签名：RSA-SHA256/ECDSA/DSA/Ed25519/SM3withSM2</li>
  *   <li>密钥：PEM/DER/Base64 编码转换、DH/ECDH 协商</li>
  *   <li>国密专题：SM2+SM3+SM4 数字信封</li>
+ *   <li>X.509 证书与 PKCS#12 密钥库</li>
+ *   <li>CMS：数字信封（EnvelopedData）+ PKCS#7 签名（attach/detach）</li>
+ *   <li>PKCS#10：CSR 构建/验证与 CA 基于 CSR 签发证书</li>
  * </ol>
  */
 public final class Main {
@@ -81,6 +86,12 @@ public final class Main {
         System.out.println("[8] X.509 证书与 PKCS#12 密钥库");
         CertificateDemo.demo();
         Pkcs12Demo.demo();
+
+        System.out.println("[9] CMS 数字信封与 PKCS#7 签名");
+        CmsDemo.demo();
+
+        System.out.println("[10] PKCS#10 CSR 与证书签发");
+        CsrDemo.demo();
 
         System.out.println("==========================================");
         System.out.println(" 演示结束：全部算法往返验证通过（见各节输出）");
