@@ -105,4 +105,33 @@ class DnsQuestionTest {
         byte[] truncated = new byte[]{3, 'w', 'w', 'w'};
         assertThrows(IllegalArgumentException.class, () -> DnsQuestion.parse(truncated));
     }
+
+    @Test
+    @DisplayName("多问题报文（QDCOUNT=2）：头部后连续解析两条查询记录")
+    void multipleQuestions() {
+        DnsHeader header = DnsHeader.query(0x1234, true, 2); // QDCOUNT=2
+        DnsQuestion q1 = new DnsQuestion("www.example.com", DnsQuestion.QTYPE_A,
+                DnsQuestion.QCLASS_IN);
+        DnsQuestion q2 = new DnsQuestion("mail.example.com", DnsQuestion.QTYPE_MX,
+                DnsQuestion.QCLASS_IN);
+        byte[] message = new byte[DnsHeader.HEADER_LENGTH + q1.encode().length + q2.encode().length];
+        System.arraycopy(header.encode(), 0, message, 0, DnsHeader.HEADER_LENGTH);
+        System.arraycopy(q1.encode(), 0, message, DnsHeader.HEADER_LENGTH, q1.encode().length);
+        System.arraycopy(q2.encode(), 0, message,
+                DnsHeader.HEADER_LENGTH + q1.encode().length, q2.encode().length);
+
+        // 第一条
+        DnsQuestion.ParsedQuestion first = DnsQuestion.parseAt(message, DnsHeader.HEADER_LENGTH);
+        assertEquals("www.example.com", first.question().name());
+        assertEquals(DnsQuestion.QTYPE_A, first.question().qtype());
+        // 第二条：从第一条之后继续
+        DnsQuestion.ParsedQuestion second = DnsQuestion.parseAt(message,
+                DnsHeader.HEADER_LENGTH + first.bytesConsumed());
+        assertEquals("mail.example.com", second.question().name());
+        assertEquals(DnsQuestion.QTYPE_MX, second.question().qtype());
+        assertEquals("MX", second.question().qtypeName());
+        // 正好读完整个报文
+        assertEquals(message.length, DnsHeader.HEADER_LENGTH
+                + first.bytesConsumed() + second.bytesConsumed());
+    }
 }

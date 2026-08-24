@@ -169,6 +169,45 @@ class SubnetCalculatorTest {
                 () -> SubnetCalculator.split(IpHeader.parseIp("192.168.1.0"), 24, 33));
     }
 
+    // ---- 私网地址判断（RFC 1918） ----
+
+    @Test
+    @DisplayName("私网判断：10/8、172.16/12、192.168/16 三段的典型地址为私网")
+    void privateIpDetected() {
+        assertTrue(SubnetCalculator.isPrivateIp("10.0.0.1"));
+        assertTrue(SubnetCalculator.isPrivateIp("10.255.255.255"));
+        assertTrue(SubnetCalculator.isPrivateIp("172.16.0.1"));
+        assertTrue(SubnetCalculator.isPrivateIp("172.31.255.255"), "172.16.0.0/12 上限是 172.31.255.255");
+        assertTrue(SubnetCalculator.isPrivateIp("192.168.0.1"));
+        assertTrue(SubnetCalculator.isPrivateIp("192.168.255.255"));
+    }
+
+    @Test
+    @DisplayName("公网判断：边界之外是公网（含 /12 段之外的 172.32、100.64 CGNAT 等）")
+    void publicIpDetected() {
+        assertFalse(SubnetCalculator.isPrivateIp("11.0.0.1"), "10/8 之外");
+        assertFalse(SubnetCalculator.isPrivateIp("172.32.0.1"), "172.16/12 之外");
+        assertFalse(SubnetCalculator.isPrivateIp("192.169.0.1"), "192.168/16 之外");
+        assertFalse(SubnetCalculator.isPrivateIp("8.8.8.8"), "公网 DNS");
+        assertFalse(SubnetCalculator.isPrivateIp("100.64.0.1"), "CGNAT 段不算 RFC 1918 私网");
+    }
+
+    // ---- 大网等分：10.0.0.0/8 -> 256 个 /16 ----
+
+    @Test
+    @DisplayName("10.0.0.0/8 等分成 256 个 /16：第一个 10.0.0.0/16、最后一个 10.255.0.0/16")
+    void splitBigNetwork() {
+        List<SubnetInfo> subnets = SubnetCalculator.split(
+                IpHeader.parseIp("10.0.0.0"), 8, 16);
+        assertEquals(256, subnets.size(), "2^(16-8) = 256 个子网");
+        assertEquals("10.0.0.0/16", subnets.get(0).cidr());
+        assertEquals("10.1.0.0/16", subnets.get(1).cidr());
+        assertEquals("10.255.0.0/16", subnets.get(255).cidr(), "最后一个子网");
+        for (SubnetInfo subnet : subnets) {
+            assertEquals(65534, subnet.usableHosts());
+        }
+    }
+
     // ---- 汇总信息 ----
 
     @Test

@@ -49,6 +49,21 @@ public class SubnetCalculator {
         return IpHeader.toIpString(mask);
     }
 
+    /**
+     * 私网地址判断（RFC 1918，面试常问三段）：
+     * 10.0.0.0/8、172.16.0.0/12、192.168.0.0/16 是私网地址（公网路由器不路由，NAT 出口转换）。
+     */
+    public static boolean isPrivateIp(int ip) {
+        return (ip & 0xFF000000) == 0x0A000000       // 10.x.x.x（10.0.0.0/8）
+                || (ip & 0xFFF00000) == 0xAC100000   // 172.16~172.31（172.16.0.0/12）
+                || (ip & 0xFFFF0000) == 0xC0A80000;  // 192.168.x.x（192.168.0.0/16）
+    }
+
+    /** 私网地址判断（字符串版，如 isPrivateIp("192.168.1.1") = true）。 */
+    public static boolean isPrivateIp(String ip) {
+        return isPrivateIp(IpHeader.parseIp(ip));
+    }
+
     /** 网络地址 = IP 与上子网掩码（主机位清零）。 */
     public static int networkAddress(int ip, int prefix) {
         checkPrefix(prefix);

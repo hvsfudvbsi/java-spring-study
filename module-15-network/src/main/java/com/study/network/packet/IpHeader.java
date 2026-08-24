@@ -1,5 +1,8 @@
 package com.study.network.packet;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * IPv4 首部（最小 20 字节，不含选项）——网络层报文头。
  *
@@ -161,6 +164,37 @@ public class IpHeader {
     /** IP 首部实际长度 = IHL × 4 */
     public int headerLength() {
         return ihl * 4;
+    }
+
+    /**
+     * 分片重组（IPv4 接收端）：同一标识（identification）的多个分片，按片偏移（×8 字节）
+     * 拼接回原数据报。返回重组后的**数据总长度**（不含 IP 首部）。
+     * 分片偏移不连续（中间缺片）或标识不一致时抛异常——接收端遇到这两种情况只能丢弃。
+     * 演示场景：3000 字节数据、MTU=1500 时分 3 片（1480 + 1480 + 40），偏移 0 / 185 / 370。
+     *
+     * @param fragments 同一数据报的所有分片（顺序可乱，内部按片偏移排序）
+     */
+    public static int reassembledDataLength(List<IpHeader> fragments) {
+        if (fragments == null || fragments.isEmpty()) {
+            throw new IllegalArgumentException("至少需要一个分片");
+        }
+        int id = fragments.get(0).identification();
+        List<IpHeader> sorted = new ArrayList<>(fragments);
+        sorted.sort(java.util.Comparator.comparingInt(IpHeader::fragmentOffset));
+        int total = 0;
+        for (IpHeader fragment : sorted) {
+            if (fragment.identification() != id) {
+                throw new IllegalArgumentException("分片标识不一致: " + fragment.identification()
+                        + " != " + id + "（不同数据报的分片不能混在一起重组）");
+            }
+            if (fragment.fragmentOffset() != total / 8) {
+                throw new IllegalArgumentException("分片偏移不连续: 期望 " + total / 8
+                        + "（已收 " + total + " 字节），实际 " + fragment.fragmentOffset()
+                        + "（中间缺片，重组失败）");
+            }
+            total += fragment.totalLength() - fragment.headerLength(); // 本片数据长度
+        }
+        return total;
     }
 
     /** 上层数据长度 = 总长度 - 首部长度 */

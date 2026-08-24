@@ -56,13 +56,53 @@ public class IcmpHeader {
 
     /** 编码为 8 字节（网络字节序：大端） */
     public byte[] encode() {
+        return encodeWithChecksum(checksum);
+    }
+
+    /** 用指定校验和编码（计算时传 0，发送时传算好的值）。 */
+    private byte[] encodeWithChecksum(int checksumValue) {
         byte[] bytes = new byte[HEADER_LENGTH];
         bytes[0] = (byte) type;
         bytes[1] = (byte) code;
-        writeShort(bytes, 2, checksum);
+        writeShort(bytes, 2, checksumValue);
         writeShort(bytes, 4, identifier);
         writeShort(bytes, 6, sequence);
         return bytes;
+    }
+
+    /**
+     * 计算 ICMP 校验和（RFC 1071 反码和）：覆盖「首部（校验和字段置 0）+ 数据」。
+     * 与 IP 首部校验和的区别：ICMP 校验和**包含数据**（ping 的 payload 也要校验）。
+     *
+     * @param payload ICMP 数据部分（Echo 报文通常是随机的填充字节），可为空
+     */
+    public int computeChecksum(byte[] payload) {
+        int sum = Checksums.onesComplementSum(concat(encodeWithChecksum(0), payload));
+        return Checksums.complement(sum); // 校验和字段 = 反码和的反码
+    }
+
+    /** 返回校验和已填好的一份拷贝（计算了首部 + 数据），可直接发送。 */
+    public IcmpHeader withValidChecksum(byte[] payload) {
+        return new IcmpHeader(type, code, computeChecksum(payload), identifier, sequence);
+    }
+
+    /** 整体验证：带已填校验和的完整报文（首部 + 数据）反码和为 0xFFFF 即通过。 */
+    public boolean verify(byte[] payload) {
+        return Checksums.onesComplementSum(concat(encode(), payload)) == 0xFFFF;
+    }
+
+    private static byte[] concat(byte[]... arrays) {
+        int total = 0;
+        for (byte[] array : arrays) {
+            total += array.length;
+        }
+        byte[] result = new byte[total];
+        int offset = 0;
+        for (byte[] array : arrays) {
+            System.arraycopy(array, 0, result, offset, array.length);
+            offset += array.length;
+        }
+        return result;
     }
 
     /** 从字节解析 ICMP 首部 */

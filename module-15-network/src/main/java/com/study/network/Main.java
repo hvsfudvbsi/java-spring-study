@@ -137,6 +137,12 @@ public class Main {
         IpHeader frag = ip.withFragmentation(IpHeader.FLAG_MF, 185);
         System.out.println("IP 分片首部: " + frag);
         System.out.println("解析回: " + IpHeader.parse(frag.encode()));
+        // 4.2 IP 分片重组：3000 字节数据按 MTU=1500 分 3 片（1480+1480+40），偏移 0/185/370
+        IpHeader f1 = new IpHeader(4, 5, 20 + 1480, 0x1234, IpHeader.FLAG_MF, 0, 64, 17, 0, 0, 0);
+        IpHeader f2 = new IpHeader(4, 5, 20 + 1480, 0x1234, IpHeader.FLAG_MF, 185, 64, 17, 0, 0, 0);
+        IpHeader f3 = new IpHeader(4, 5, 20 + 40, 0x1234, 0, 370, 64, 17, 0, 0, 0);
+        System.out.println("分片重组: 偏移 0/185/370 三片（标识 0x1234）-> 重组后数据 "
+                + IpHeader.reassembledDataLength(List.of(f2, f1, f3)) + " 字节（原 3000 字节）");
         System.out.println();
 
         // 5. 以太网帧头
@@ -147,12 +153,15 @@ public class Main {
         System.out.println("以太网帧头 " + frame.encode().length + " 字节: " + frame);
         System.out.println();
 
-        // 5.1 ICMP 首部：ping 请求（类型 8）
-        IcmpHeader icmp = new IcmpHeader(IcmpHeader.TYPE_ECHO_REQUEST, 0,
-                0xABCD, 0x0001, 1);
+        // 5.1 ICMP 首部：ping 请求（类型 8），含校验和（首部 + 数据）
+        byte[] pingPayload = "ping-data".getBytes();
+        IcmpHeader icmp = new IcmpHeader(IcmpHeader.TYPE_ECHO_REQUEST, 0, 0, 0x0001, 1)
+                .withValidChecksum(pingPayload);
         byte[] icmpBytes = icmp.encode();
-        System.out.println("ICMP 首部 " + icmpBytes.length + " 字节: " + icmp);
-        System.out.println("解析回: " + IcmpHeader.parse(icmpBytes));
+        System.out.println("ICMP 首部 " + icmpBytes.length + " 字节: " + icmp
+                + "（校验和 0x" + String.format("%04X", icmp.checksum()) + " 覆盖首部+数据）");
+        System.out.println("解析回: " + IcmpHeader.parse(icmpBytes)
+                + ", 校验通过=" + icmp.verify(pingPayload));
         System.out.println();
 
         // 6. 完整报文分层解析：以太网(14) + IP(20) + TCP(20) + 负载
@@ -181,6 +190,14 @@ public class Main {
         System.out.println("  第 1 层 以太网: " + parsedArp.ethernet());
         System.out.println("  第 2 层 ARP:   " + parsedArp.transport()
                 + "（isArp=" + parsedArp.isArp() + ", ip=" + parsedArp.ip() + "）");
+
+        // 6.2 免费 ARP：主机上线宣布「192.168.1.10 是我的 MAC」（发送方=目标=自己，目标 MAC 广播）
+        ArpHeader gratuitous = ArpHeader.gratuitous(
+                IpHeader.parseIp("192.168.1.10"), EthernetFrame.parseMac("AA:BB:CC:DD:EE:FF"));
+        System.out.println("免费 ARP: " + gratuitous
+                + "（sender=" + IpHeader.toIpString(gratuitous.senderIp())
+                + ", target=" + IpHeader.toIpString(gratuitous.targetIp())
+                + ", targetMac=" + EthernetFrame.toMacString(gratuitous.targetMac()) + "）");
         System.out.println();
 
         // 6.2 DNS：UDP 53 端口上的域名查询（头部 12 字节 + 查询记录）

@@ -3,6 +3,8 @@ package com.study.network.packet;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -121,6 +123,46 @@ class IpHeaderTest {
         IpHeader df = original.withFragmentation(IpHeader.FLAG_DF, 0);
         assertEquals("DF", df.flagsDescription());
         assertEquals(IpHeader.FLAG_DF, IpHeader.parse(df.encode()).flags());
+    }
+
+    @Test
+    @DisplayName("分片重组：3000 字节数据按 MTU=1500 分 3 片（1480+1480+40），偏移 0/185/370")
+    void reassembleFragments() {
+        // 分片 1：数据 1480 字节，偏移 0，MF=1
+        IpHeader f1 = new IpHeader(4, 5, 20 + 1480, 0xABCD, IpHeader.FLAG_MF, 0,
+                64, IpHeader.PROTOCOL_TCP, 0, 0, 0);
+        // 分片 2：数据 1480 字节，偏移 185（1480/8），MF=1
+        IpHeader f2 = new IpHeader(4, 5, 20 + 1480, 0xABCD, IpHeader.FLAG_MF, 185,
+                64, IpHeader.PROTOCOL_TCP, 0, 0, 0);
+        // 分片 3：数据 40 字节，偏移 370（2960/8），MF=0（最后一片）
+        IpHeader f3 = new IpHeader(4, 5, 20 + 40, 0xABCD, 0, 370,
+                64, IpHeader.PROTOCOL_TCP, 0, 0, 0);
+
+        // 乱序传入也能重组（内部按片偏移排序）
+        assertEquals(3000, IpHeader.reassembledDataLength(List.of(f2, f3, f1)),
+                "重组后的数据长度 = 1480+1480+40");
+    }
+
+    @Test
+    @DisplayName("分片重组失败：标识不一致 / 偏移不连续（中间缺片）必须拒绝")
+    void reassembleRejectsBadFragments() {
+        IpHeader base = new IpHeader(4, 5, 20 + 1480, 0xABCD, IpHeader.FLAG_MF, 0,
+                64, IpHeader.PROTOCOL_TCP, 0, 0, 0);
+        // 标识不一致：属于不同数据报的分片
+        IpHeader otherId = new IpHeader(4, 5, 20 + 1480, 0x9999, IpHeader.FLAG_MF, 185,
+                64, IpHeader.PROTOCOL_TCP, 0, 0, 0);
+        assertThrows(IllegalArgumentException.class,
+                () -> IpHeader.reassembledDataLength(List.of(base, otherId)));
+
+        // 偏移不连续：从偏移 0 直接跳到 370（缺 185 那一片）
+        IpHeader jumped = new IpHeader(4, 5, 20 + 40, 0xABCD, 0, 370,
+                64, IpHeader.PROTOCOL_TCP, 0, 0, 0);
+        assertThrows(IllegalArgumentException.class,
+                () -> IpHeader.reassembledDataLength(List.of(base, jumped)));
+
+        // 空列表拒绝
+        assertThrows(IllegalArgumentException.class,
+                () -> IpHeader.reassembledDataLength(List.of()));
     }
 
     @Test

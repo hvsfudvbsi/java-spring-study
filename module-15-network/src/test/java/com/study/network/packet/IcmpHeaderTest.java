@@ -4,7 +4,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * ICMP 首部测试：类型/代码/校验和字段、ping Echo 报文。
@@ -83,5 +85,41 @@ class IcmpHeaderTest {
         assertEquals(IcmpHeader.TYPE_ECHO_REQUEST, parsed.type());
         assertEquals(0x2222, parsed.identifier());
         assertEquals(3, parsed.sequence());
+    }
+
+    // ---- ICMP 校验和（RFC 1071：首部 + 数据） ----
+
+    @Test
+    @DisplayName("校验和往返：computeChecksum 覆盖首部+数据，withValidChecksum 后 verify 通过")
+    void checksumRoundTrip() {
+        byte[] payload = "ping-payload-1234".getBytes(); // 16 字节偶数
+        IcmpHeader icmp = new IcmpHeader(IcmpHeader.TYPE_ECHO_REQUEST, 0, 0, 0x0001, 1);
+        int checksum = icmp.computeChecksum(payload);
+        assertTrue(checksum != 0, "校验和不应为 0");
+
+        IcmpHeader valid = icmp.withValidChecksum(payload);
+        assertEquals(checksum, valid.checksum());
+        assertTrue(valid.verify(payload), "整体反码和应为 0xFFFF");
+    }
+
+    @Test
+    @DisplayName("篡改数据后校验失败：校验和能发现数据被改")
+    void checksumDetectsTampering() {
+        byte[] payload = "ping-payload-1234".getBytes();
+        IcmpHeader valid = new IcmpHeader(IcmpHeader.TYPE_ECHO_REQUEST, 0, 0, 1, 1)
+                .withValidChecksum(payload);
+        assertTrue(valid.verify(payload));
+
+        byte[] tampered = payload.clone();
+        tampered[0] ^= 0x01; // 翻转一个 bit
+        assertFalse(valid.verify(tampered), "数据被篡改后校验必须失败");
+    }
+
+    @Test
+    @DisplayName("奇数长度数据也能校验（末尾补 0 参与计算）")
+    void checksumWithOddLengthPayload() {
+        IcmpHeader valid = new IcmpHeader(IcmpHeader.TYPE_ECHO_REQUEST, 0, 0, 1, 1)
+                .withValidChecksum("abc".getBytes()); // 3 字节奇数
+        assertTrue(valid.verify("abc".getBytes()));
     }
 }

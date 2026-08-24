@@ -18,13 +18,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class FrameCodecTest {
 
     @Test
-    @DisplayName("编码：帧 = [4 字节长度头][UTF-8 内容]")
+    @DisplayName("编码：帧 = [1 字节版本][4 字节长度头][UTF-8 内容]")
     void encodeWritesLengthHeader() {
         String message = "长度头协议";
         byte[] frame = FrameCodec.encode(message);
 
         byte[] content = message.getBytes(StandardCharsets.UTF_8);
-        assertEquals(4 + content.length, frame.length);
+        assertEquals(FrameCodec.FRAME_HEADER_SIZE + content.length, frame.length);
+        assertEquals(FrameCodec.VERSION, frame[0] & 0xFF, "首字节是协议版本");
         assertEquals(content.length, FrameCodec.readLengthHeader(frame));
         assertEquals(message, FrameCodec.readContent(frame));
     }
@@ -80,14 +81,14 @@ class FrameCodecTest {
     }
 
     @Test
-    @DisplayName("解码：长度头本身被拆成两批到达也能正确处理")
+    @DisplayName("解码：帧头本身被拆成两批到达也能正确处理")
     void decodeSplitLengthHeader() {
         FrameDecoder decoder = new FrameDecoder();
         byte[] frame = FrameCodec.encode("头部被拆");
 
-        // 第一批只到 2 字节（长度头 4 字节都没凑齐）
+        // 第一批只到 2 字节（帧头 5 字节都没凑齐）
         List<String> first = decoder.decode(Arrays.copyOf(frame, 2));
-        assertTrue(first.isEmpty(), "长度头不足不应产出");
+        assertTrue(first.isEmpty(), "帧头不足不应产出");
 
         // 第二批补上剩余全部
         List<String> second = decoder.decode(Arrays.copyOfRange(frame, 2, frame.length));
@@ -131,9 +132,21 @@ class FrameCodecTest {
     @DisplayName("解码：非法超长帧长度被拒绝")
     void decodeRejectsOversizedFrame() {
         FrameDecoder decoder = new FrameDecoder();
-        // 长度头声明 1MB，超过 MAX_FRAME_LENGTH
-        byte[] malicious = new byte[]{(byte) 0x00, (byte) 0x10, (byte) 0x00, (byte) 0x00};
+        // 版本 1 + 长度头声明 1MB（0x00100000），超过 MAX_FRAME_LENGTH
+        byte[] malicious = new byte[]{(byte) 0x01, (byte) 0x00, (byte) 0x10,
+                (byte) 0x00, (byte) 0x00};
         assertThrows(IllegalArgumentException.class, () -> decoder.decode(malicious));
+    }
+
+    @Test
+    @DisplayName("解码：版本不匹配直接拒绝（协议不兼容，接收方断开连接）")
+    void decodeRejectsWrongVersion() {
+        FrameDecoder decoder = new FrameDecoder();
+        // 版本 2 的帧：版本字节不是 VERSION=1
+        byte[] wrongVersion = new byte[]{0x02, 0x00, 0x00, 0x00, 0x05,
+                'h', 'e', 'l', 'l', 'o'};
+        assertThrows(IllegalArgumentException.class, () -> decoder.decode(wrongVersion),
+                "版本不匹配必须拒绝，不能按旧格式解析新数据");
     }
 
     private byte[] concat(byte[]... arrays) {

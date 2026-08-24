@@ -109,4 +109,20 @@ class DnsHeaderTest {
     void parseRejectsShortBuffer() {
         assertThrows(IllegalArgumentException.class, () -> DnsHeader.parse(new byte[11]));
     }
+
+    @Test
+    @DisplayName("withId 拷贝：换事务 ID 后其他字段不变（模拟 ID 不匹配的响应被丢弃）")
+    void withIdCopies() {
+        DnsHeader query = DnsHeader.query(0x1234, true, 1);
+        DnsHeader changed = query.withId(0x5678);
+
+        assertEquals(0x5678, changed.id(), "事务 ID 被替换");
+        assertEquals(0x1234, query.id(), "原对象不变（不可变）");
+        assertEquals(query.recursionDesired(), changed.recursionDesired());
+        assertEquals(query.questionCount(), changed.questionCount());
+        assertFalse(changed.response(), "查询仍不是响应");
+
+        // 编码往返：ID 确实写进了报文
+        assertEquals(0x5678, DnsHeader.parse(changed.encode()).id());
+    }
 }

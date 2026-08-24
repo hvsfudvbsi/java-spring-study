@@ -155,4 +155,43 @@ class PacketParserTest {
         byte[] frame = concat(eth.encode(), new byte[20]);
         assertThrows(IllegalArgumentException.class, () -> PacketParser.parse(frame));
     }
+
+    // ---- 构造真实应用层报文：IP + UDP + DNS 查询 ----
+
+    @Test
+    @DisplayName("完整 DNS 查询报文：以太网+IP+UDP+DNS（头部+查询记录），解析出 53 端口与域名")
+    void parseDnsQueryPacket() {
+        EthernetFrame eth = new EthernetFrame(
+                EthernetFrame.parseMac("00:11:22:33:44:55"),
+                EthernetFrame.parseMac("66:77:88:99:AA:BB"),
+                EthernetFrame.ETHERTYPE_IPV4);
+        DnsHeader dnsHeader = DnsHeader.query(0x1234, true, 1);
+        DnsQuestion question = new DnsQuestion("www.example.com",
+                DnsQuestion.QTYPE_A, DnsQuestion.QCLASS_IN);
+        byte[] dns = concat(dnsHeader.encode(), question.encode());
+
+        IpHeader ip = new IpHeader(4, 5, 20 + 8 + dns.length, 1, 64,
+                IpHeader.PROTOCOL_UDP, 0,
+                IpHeader.parseIp("192.168.1.10"), IpHeader.parseIp("8.8.8.8"));
+        UdpHeader udp = new UdpHeader(53000, 53, 8 + dns.length, 0); // 目的端口 53 = DNS
+
+        byte[] frame = concat(eth.encode(), ip.encode(), udp.encode(), dns);
+        PacketParser.ParsedPacket parsed = PacketParser.parse(frame);
+
+        // 传输层：UDP 目的端口 53（DNS）
+        assertTrue(parsed.isUdp());
+        UdpHeader parsedUdp = (UdpHeader) parsed.transport();
+        assertEquals(53, parsedUdp.destinationPort(), "DNS 查询目的端口 53");
+        assertEquals(dns.length, parsedUdp.payloadLength());
+        assertEquals(dns.length, parsed.payloadLength());
+        // 负载就是 DNS 报文（UDP 首部之后）：12 字节头部 + 21 字节查询记录
+        int udpOffset = EthernetFrame.HEADER_LENGTH + 20 + UdpHeader.HEADER_LENGTH;
+        byte[] dnsPayload = java.util.Arrays.copyOfRange(frame, udpOffset, frame.length);
+        DnsHeader parsedDnsHeader = DnsHeader.parse(dnsPayload, 0);
+        assertEquals(0x1234, parsedDnsHeader.id());
+        assertEquals(1, parsedDnsHeader.questionCount());
+        DnsQuestion.ParsedQuestion parsedQuestion = DnsQuestion.parseAt(
+                dnsPayload, DnsHeader.HEADER_LENGTH);
+        assertEquals("www.example.com", parsedQuestion.question().name());
+    }
 }

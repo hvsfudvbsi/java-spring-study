@@ -79,6 +79,19 @@ public class ArpHeader {
         this.targetIp = targetIp;
     }
 
+    /**
+     * 免费 ARP（Gratuitous ARP）：主机**上线/换 IP** 时主动广播，告诉全网「这个 IP 属于我的 MAC」——
+     * 用 ARP 请求形式（opcode=1）：发送方 = 目标 = 自己（targetMac 填广播地址），
+     * 其他主机收到后更新自己的 ARP 缓存；也可用来探测 IP 冲突（若有主机回 ARP 回复说明撞 IP）。
+     * 与普通 ARP 请求的区别：普通请求问「谁有 192.168.1.1？」，免费 ARP 直接宣布「192.168.1.1 就是我」。
+     */
+    public static ArpHeader gratuitous(int ip, byte[] mac) {
+        byte[] broadcast = new byte[]{(byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+                (byte) 0xFF, (byte) 0xFF, (byte) 0xFF};
+        return new ArpHeader(HARDWARE_ETHERNET, PROTOCOL_IPV4, 6, 4,
+                OPCODE_REQUEST, mac, ip, broadcast, ip);
+    }
+
     /** 编码为 28 字节（网络字节序：大端）。 */
     public byte[] encode() {
         byte[] bytes = new byte[HEADER_LENGTH];

@@ -6,29 +6,37 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 帧编解码器：`[4 字节长度头][UTF-8 内容]` 协议。
+ * 帧编解码器：`[1 字节版本][4 字节长度][UTF-8 内容]` 协议。
  *
  * 为什么需要它：TCP 是字节流，没有消息边界（粘包/拆包）。应用层必须自己定义帧格式。
- * 长度头方案是最通用的做法（Netty 的 LengthFieldBasedFrameDecoder 就是这个思路）：
+ * 长度头方案是最通用的做法（Netty 的 LengthFieldBasedFrameDecoder 就是这个思路）；
+ * 版本字节让协议可演进：两端版本不一致时直接断开，避免按旧格式解析新数据（协议不兼容）。
  *
  * <pre>
- *   +----------------+-------------------------+
- *   | 长度头 (4 字节)  | 内容 (UTF-8, 长度头决定) |
- *   +----------------+-------------------------+
+ *   +--------+----------------+-------------------------+
+ *   | 版本(1) | 长度头 (4 字节)  | 内容 (UTF-8, 长度头决定) |
+ *   +--------+----------------+-------------------------+
  * </pre>
  *
- * 编码（发送方）：String -> [长度][内容]
- * 解码（接收方）：字节流 -> 按长度头切出完整帧，不足则等待下一批数据
+ * 编码（发送方）：String -> [版本][长度][内容]
+ * 解码（接收方）：字节流 -> 校验版本、按长度头切出完整帧，不足则等待下一批数据
  *
- * FrameDecoder 内部维护累积缓冲，正确处理三种情况：
+ * FrameDecoder 内部维护累积缓冲，正确处理四种情况：
  * - 粘包：一批数据含多帧 -> 一次产出多帧
  * - 拆包：半帧到达 -> 不产出，等下一批补齐
- * - 长度头本身被拆开 -> 等够 4 字节再读
+ * - 帧头本身被拆开 -> 等够 5 字节再读
+ * - 版本不匹配 -> 抛异常（接收方直接断开连接）
  */
 public class FrameCodec {
 
-    /** 长度头占 4 字节 */
+    /** 协议版本：两端必须一致，否则断开（当前只有 v1） */
+    public static final int VERSION = 1;
+
+    /** 长度字段占 4 字节 */
     public static final int LENGTH_HEADER_SIZE = 4;
+
+    /** 帧头总大小 = 版本(1) + 长度(4) */
+    public static final int FRAME_HEADER_SIZE = 5;
 
     /** 单帧最大长度：防止恶意超长帧耗尽内存 */
     public static final int MAX_FRAME_LENGTH = 64 * 1024;
@@ -36,35 +44,36 @@ public class FrameCodec {
     private FrameCodec() {
     }
 
-    /** 编码：String -> [4 字节长度][UTF-8 内容] */
+    /** 编码：String -> [版本(1)][4 字节长度][UTF-8 内容] */
     public static byte[] encode(String message) {
         byte[] content = message.getBytes(StandardCharsets.UTF_8);
         if (content.length > MAX_FRAME_LENGTH) {
             throw new IllegalArgumentException(
                     "帧超长: " + content.length + " > " + MAX_FRAME_LENGTH);
         }
-        byte[] frame = new byte[LENGTH_HEADER_SIZE + content.length];
-        // 大端写长度头
-        frame[0] = (byte) ((content.length >> 24) & 0xFF);
-        frame[1] = (byte) ((content.length >> 16) & 0xFF);
-        frame[2] = (byte) ((content.length >> 8) & 0xFF);
-        frame[3] = (byte) (content.length & 0xFF);
-        System.arraycopy(content, 0, frame, LENGTH_HEADER_SIZE, content.length);
+        byte[] frame = new byte[FRAME_HEADER_SIZE + content.length];
+        frame[0] = (byte) VERSION;
+        // 大端写长度头（偏移 1）
+        frame[1] = (byte) ((content.length >> 24) & 0xFF);
+        frame[2] = (byte) ((content.length >> 16) & 0xFF);
+        frame[3] = (byte) ((content.length >> 8) & 0xFF);
+        frame[4] = (byte) (content.length & 0xFF);
+        System.arraycopy(content, 0, frame, FRAME_HEADER_SIZE, content.length);
         return frame;
     }
 
-    /** 读取帧长度（用于测试/日志） */
+    /** 读取帧长度（跳过版本字节，用于测试/日志） */
     public static int readLengthHeader(byte[] frame) {
-        return ((frame[0] & 0xFF) << 24)
-                | ((frame[1] & 0xFF) << 16)
-                | ((frame[2] & 0xFF) << 8)
-                | (frame[3] & 0xFF);
+        return ((frame[1] & 0xFF) << 24)
+                | ((frame[2] & 0xFF) << 16)
+                | ((frame[3] & 0xFF) << 8)
+                | (frame[4] & 0xFF);
     }
 
     /** 提取帧内容（用于测试/日志） */
     public static String readContent(byte[] frame) {
         int length = readLengthHeader(frame);
-        return new String(frame, LENGTH_HEADER_SIZE, length, StandardCharsets.UTF_8);
+        return new String(frame, FRAME_HEADER_SIZE, length, StandardCharsets.UTF_8);
     }
 
     /**
@@ -84,27 +93,33 @@ public class FrameCodec {
             int offset = 0;
 
             while (true) {
-                // 1. 长度头不足 4 字节：等待下一批
-                if (all.length - offset < LENGTH_HEADER_SIZE) {
+                // 1. 帧头不足 5 字节：等待下一批
+                if (all.length - offset < FRAME_HEADER_SIZE) {
                     break;
                 }
-                // 2. 读长度头
-                int length = ((all[offset] & 0xFF) << 24)
-                        | ((all[offset + 1] & 0xFF) << 16)
-                        | ((all[offset + 2] & 0xFF) << 8)
-                        | (all[offset + 3] & 0xFF);
+                // 2. 校验版本：不匹配直接抛异常（接收方断开连接，避免按旧格式解析新数据）
+                int version = all[offset] & 0xFF;
+                if (version != VERSION) {
+                    throw new IllegalArgumentException("协议版本不匹配: 收到 " + version
+                            + "，期望 " + VERSION + "（协议不兼容，断开连接）");
+                }
+                // 3. 读长度头（偏移 +1）
+                int length = ((all[offset + 1] & 0xFF) << 24)
+                        | ((all[offset + 2] & 0xFF) << 16)
+                        | ((all[offset + 3] & 0xFF) << 8)
+                        | (all[offset + 4] & 0xFF);
                 if (length < 0 || length > MAX_FRAME_LENGTH) {
                     throw new IllegalArgumentException("非法帧长度: " + length);
                 }
-                // 3. 内容不足：整帧还没到齐，等待下一批（不能消费）
-                if (all.length - offset - LENGTH_HEADER_SIZE < length) {
+                // 4. 内容不足：整帧还没到齐，等待下一批（不能消费）
+                if (all.length - offset - FRAME_HEADER_SIZE < length) {
                     break;
                 }
-                // 4. 完整帧：切出来
-                String content = new String(all, offset + LENGTH_HEADER_SIZE,
+                // 5. 完整帧：切出来
+                String content = new String(all, offset + FRAME_HEADER_SIZE,
                         length, StandardCharsets.UTF_8);
                 frames.add(content);
-                offset += LENGTH_HEADER_SIZE + length;
+                offset += FRAME_HEADER_SIZE + length;
             }
 
             // 保留未消费的剩余字节（半帧），下次继续

@@ -513,28 +513,28 @@ close()       <────────────────────  读
 | `TcpOptionTest`（18） | MSS/WS/SACK/时间戳 构造、NOP 对齐编码、EOL 终止、多选项组合、非法长度拒绝、未知 Kind 透传、**SACK 块（单块/多块/字节布局/序号回绕/MSS 组合上限/非法构造与报文拒绝）** | 真实 TCP 协商 |
 | `SackBlockTest`（10） | 区间语义（右开/回绕）、**丢包区间推断 gaps**（中间洞/多洞乱序/全丢/全覆盖/重叠合并/范围外忽略/回绕范围/空范围与非法参数） | 真实网络时序 |
 | `UdpHeaderTest`（3） | 8 字节固定、大端字节序、负载长度计算 | 丢包/乱序 |
-| `IpHeaderTest`（9） | 版本+IHL 位字段、点分十进制互转、IP 每段 0~255 校验、分片三件套编解码与非法参数 | 真实路由/分片 |
+| `IpHeaderTest`（11） | 版本+IHL 位字段、点分十进制互转、IP 每段 0~255 校验、分片三件套编解码与非法参数、**分片重组（3 片乱序拼接/标识不一致/偏移不连续拒绝）** | 真实路由/分片 |
 | `ChecksumTest`（11） | RFC 1071 IP 官方向量、反码和折叠、奇数长度补 0、TCP/UDP 伪首部校验和向量与整体验证、伪首部/数据参与校验 | 真实抓包校验 |
 | `EthernetFrameTest`（4） | 14 字节帧头、MAC 地址转换、EtherType | 真实网卡 |
-| `IcmpHeaderTest`（6） | ping 请求/回复往返、字段位置、类型名称、偏移解析 | 真实 ping 抓包 |
-| `PacketParserTest`（6） | 完整报文 TCP/UDP/**ICMP** 分层解析、**按 EtherType 分派 ARP**、未知协议/EtherType 拒绝 | 真实抓包 |
-| `ArpHeaderTest`（6） | 28 字节固定、请求/回复操作码、字段位置、偏移解析、非法参数 | 真实 ARP 广播 |
-| `DnsHeaderTest`（8） | 12 字节固定、查询/响应工厂、标志位字节布局、TC/RA 组合、NXDOMAIN、偏移解析、非法参数 | 真实 DNS 服务器 |
-| `DnsQuestionTest`（8） | 标签编码（[3]www[7]example[3]com[0]）、往返、QTYPE 描述、紧跟头部解析、压缩指针拒绝、非法域名 | 真实域名解析 |
+| `IcmpHeaderTest`（9） | ping 请求/回复往返、字段位置、类型名称、偏移解析、**校验和（首部+数据往返/篡改失败/奇数长度）** | 真实 ping 抓包 |
+| `PacketParserTest`（7） | 完整报文 TCP/UDP/**ICMP** 分层解析、**按 EtherType 分派 ARP**、未知协议/EtherType 拒绝、**构造 IP+UDP+DNS 完整查询报文（53 端口/域名解析）** | 真实抓包 |
+| `ArpHeaderTest`（7） | 28 字节固定、请求/回复操作码、字段位置、偏移解析、非法参数、**免费 ARP（发送方=目标=自己/广播 MAC）** | 真实 ARP 广播 |
+| `DnsHeaderTest`（9） | 12 字节固定、查询/响应工厂、标志位字节布局、TC/RA 组合、NXDOMAIN、偏移解析、非法参数、**withId 拷贝（换事务 ID 其余不变）** | 真实 DNS 服务器 |
+| `DnsQuestionTest`（9） | 标签编码（[3]www[7]example[3]com[0]）、往返、QTYPE 描述、紧跟头部解析、压缩指针拒绝、非法域名、**多问题报文（QDCOUNT=2 连续解析）** | 真实域名解析 |
 | `HttpRequestTest`（10） | 请求行/头部/请求体往返、POST+Content-Length、**多值头（多个 Cookie 往返/重复头追加/大小写不敏感读取）**、LF 容错、顺序保持、非法报文拒绝 | 真实浏览器/服务器 |
 | `HttpResponseTest`（11） | 状态行（含空格原因短语）往返、状态码语义/类别、自动补原因短语、2xx 判断、非法状态行拒绝、body 含换行、**多值头（多个 Set-Cookie 各占一行/顺序追加/header 取第一个）**、**notModified 工厂（ETag/304）**、withHeader 不可变拷贝 | 真实浏览器/服务器 |
 | `TransportProtocolTest`（4） | TCP/UDP 属性与首部长度对比、协议号反查 | — |
 | `TcpStateMachineTest`（31） | 三次握手、主动/被动四次挥手、TIME_WAIT 归属、同时关闭、**RST 连接重置（拒绝/重置/忽略）**、**半开连接检测（SYN 重传超时/计数重置/非法状态）**、**keep-alive 假死检测（IDLE_TIMEOUT 进入探测/探测超时/对端响应退出探测/非法状态）**、非法转换拒绝 | 真实网络时序 |
-| `SubnetCalculatorTest`（15） | 掩码转换、网络/广播地址、主机范围、可用主机数（含 /30、/31、/32 边界）、归属判断、等分子网 | 真实路由表 |
+| `SubnetCalculatorTest`（18） | 掩码转换、网络/广播地址、主机范围、可用主机数（含 /30、/31、/32 边界）、归属判断、等分子网、**私网判断（RFC 1918 三段/边界之外）**、**10.0.0.0/8 等分 256 个 /16** | 真实路由表 |
 | `TcpCongestionControlTest`（19） | 慢启动指数增长、拥塞避免线性增长、超时重置、快重传/快恢复、有效窗口 min(cwnd, rwnd)、参数校验、**SACK 精细化重传（只重传块空隙/全覆盖无重传）**、**ssthresh 手动设置**、**超时后阈值翻倍加速恢复** | 真实网络拥塞 |
 | `SocketIntegrationTest`（4） | **真实回环** TCP/UDP 回显、粘包 vs 有边界 | 跨主机网络 |
 | `MinimalHttpClientTest`（9） | **真实回环** GET 往返（按 Content-Length 收 body）、**拆包分 5 片收齐**、无 Content-Length 读到 EOF、**chunked（单块/多块十六进制大小/分片写拆包/trailer 跳过/CL+TE 走私拒绝）**、**MinimalHttpServer 配套 200/404/405/chunked** | 跨主机网络、公网站点 |
 | `HttpConnectionTest`（10） | **真实回环 Keep-Alive 复用**：连发 3 请求切分正确、Connection: close 后不可复用、HTTP/1.0 无长度 EOF 不可复用、chunked 后仍可继续发、MinimalHttpServer 配套 4 请求同一连接、**gzip 解压**、**管线化 3 请求一次写出**、**重定向跟随/超限/跨主机拒绝** | 跨主机网络、公网站点 |
-| `FrameCodecTest`（9） | 长度头编码、粘包多帧、拆包等待、长度头分批、非法超长拒绝 | 真实网络 |
+| `FrameCodecTest`（10） | **版本+长度头编码**、粘包多帧、拆包等待、帧头分批、非法超长拒绝、**版本不匹配直接拒绝** | 真实网络 |
 | `FramedTcpServerIntegrationTest`（4） | **真实回环**多帧回声、特殊字符、双客户端并发、跨 TCP 分段拼帧 | 跨主机网络 |
 | `TlsHandshakeDemoTest`（1） | **真实回环** SSLSocket 握手成功、协商协议/密码套件、收到回显 | 正式证书链、主机名校验 |
 
-> 共 229 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
+> 共 242 个测试，全部带 `@DisplayName`。Socket 测试用随机端口，不依赖固定端口。
 
 ## 🧯 常见问题排查
 
@@ -547,20 +547,20 @@ close()       <────────────────────  读
 ## ✍️ 动手练习
 
 1. 给 `TcpCongestionControl` 增加 **ECN 响应**：收到带 ECE 标志的数据包（中间路由器打 CE 标记）时，把 cwnd 减半（而不是等丢包才反应），并回 CWR 标志——ECN 的价值是「拥塞信号提前到达，不必靠丢包感知」，补测试。
-2. 用 `PacketParser` 构造一个"IP + UDP + DNS 查询"报文，断言解析出 `destinationPort=53`。
-3. 给 `FramedTcpServer` 增加协议版本号：帧头改为 `[1 字节版本][4 字节长度][内容]`，不匹配的版本直接断开（提示：改 `FrameCodec.encode/decode` 并补测试）。
+2. 用 `PacketParser` 构造一个"IP + TCP + DNS 查询"报文（DNS 走 TCP 53 的场景：响应超过 512 字节时），断言解析出 `destinationPort=53` 与 TCP 标志位。
+3. 给 `FrameCodec` 增加**应用层协议类型字节**：帧头 `[版本][类型][长度][内容]`，类型区分文本/二进制/心跳（对照 module-11 群聊的心跳帧），补测试。
 4. 用 `tcpdump -i lo port 19001` 抓包观察三次握手，对照 `TcpHeader` 的标志位。
 5. 给 `TcpStateMachine` 增加探测**间隔**参数：`IDLE_TIMEOUT` 后按固定间隔（如 75s，Linux 默认）周期性触发 `PROBE_TIMEOUT`，而不是手动连发（提示：记录上次探测时间，未到间隔时忽略）。
-6. 给 `IcmpHeader` 增加校验和计算：`checksum = 反码和(首部 + 数据)`，构造合法校验和并验证往返一致。
-7. 给 `SubnetCalculator` 增加私有地址判断（`isPrivateIp`）：10.0.0.0/8、172.16.0.0/12、192.168.0.0/16 返回 true，补测试。
+6. 用 `tcpdump` 抓一个真实 ping 包，把 ICMP 报文字节拷进测试，用 `IcmpHeader.verify` 验证校验和为 0xFFFF（对照本模块 Checksums 的 RFC 1071 实现）。
+7. 给 `SubnetCalculator` 增加**子网合并（超网 supernetting）**：判断多个连续子网能否合并成一个大子网（如 4 个 /26 合并为 /24），并返回合并后的 CIDR，补测试（路由聚合是面试常考）。
 8. 给 `TcpCongestionControl` 增加**初始慢启动窗口**（RFC 5681 的 IW=10）：构造参数支持 `initialCwnd=10`，并验证慢启动从 10 开始翻倍。
-9. 用 `SubnetCalculator.split` 把 10.0.0.0/8 等分成 256 个 /16，验证第一个是 10.0.0.0/16、最后一个是 10.255.0.0/16。
+9. 给 `SubnetCalculator` 增加 **VLSM 变长子网划分**：把 10.0.0.0/8 按需求切成不同大小的子网（如 128 个 /24 + 64 个 /25），模拟真实网络规划，补测试。
 10. 给 `TcpCongestionControl` 增加 **CUBIC 拥塞控制**（Linux 默认算法）：超时后 cwnd 按三次函数 `(t-K)³` 快速回升，对比 Reno 的线性恢复（提示：新增 `Phase` 或独立类，保留 Reno 实现）。
 11. 用 `tcpdump`/Wireshark 抓一个真实 TCP 包，把 IP 首部和 TCP 段的字节拷进测试，用 `Checksums` 验证校验和是否为 0xFFFF（理解校验和的实际用途）。
-12. 给 `IpHeader` 增加「分片重组」模拟：给定同一标识的多个分片（MF/片偏移不同），按片偏移拼接回原数据报并验证长度，补测试。
-13. 给 `ArpHeader` 增加「免费 ARP」构造助手（`gratuitous()`：发送方=目标，opcode=1），并用 `PacketParser` 验证能解析回同样的 IP->MAC 映射。
-14. 给 `DnsQuestion` 增加「多问题报文解析」：构造 QDCOUNT=2 的报文（两个不同域名），用 `parseAt` 连续解析并断言两次都正确。
-15. 给 `DnsHeader` 增加 `withId(int)` 拷贝方法，并演示「改事务 ID 后原响应校验失败」（模拟 DNS 伪造防护）。
+12. 给 `IpHeader` 增加**分片工具**：给定数据长度与 MTU，自动生成各分片（正确的标识/偏移/MF），并用 `reassembledDataLength` 验证能重组回原长度（发送端分片 + 接收端重组闭环）。
+13. 给 `ArpHeader` 增加**ARP 缓存**模拟：维护 IP->MAC 映射表，收到 ARP 请求/回复时更新缓存、查询命中直接回，补测试（对照免费 ARP 的缓存更新行为）。
+14. 给 `DnsHeader` 增加**响应校验**：给定查询的 id，收到响应时先比对 id 再解析（不匹配直接丢弃，模拟 DNS 防伪造），补测试。
+15. 给 `DnsQuestion` 增加 **AAAA/其他类型记录解析**：目前只有查询记录（Question），增加 Answer 记录（含 TTL、RDLENGTH、RDATA）的编解码，补测试。
 16. 给 `MinimalHttpServer` 增加**动态 ETag**：按响应体内容算哈希作为 ETag（内容变 ETag 变），配合 `If-None-Match` 做真正的内容缓存判据（当前是固定 `"v1"`）。
 17. 给 `MinimalHttpClient` 增加 **HTTPS 支持**：把底层 `Socket` 换成 `SSLSocketFactory` 创建的 TLS 套接字（对照 `tls/TlsHandshakeDemo`），验证 `https://` 连接。
 18. 给 `HttpConnection` 增加**连接池**：维护一组 `HttpConnection` 供并发请求复用（如 `ConcurrentLinkedQueue` 空闲连接），用完归还、坏连接丢弃重连（提示：对照 module-12 线程池思路）。

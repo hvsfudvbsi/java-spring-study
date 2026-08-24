@@ -170,6 +170,14 @@ public class DnsHeader {
                 readShort(bytes, offset + 10));
     }
 
+    /** 拷贝并更换事务 ID（不可变风格）。演示用途：DNS 防伪造——响应必须回同一个 ID 才能配对，
+     *  换个 ID 再解码，就能模拟「ID 不匹配的响应被丢弃」。 */
+    public DnsHeader withId(int newId) {
+        return new DnsHeader(newId, response, opcode, authoritative, truncated,
+                recursionDesired, recursionAvailable, rcode,
+                questionCount, answerCount, authorityCount, additionalCount);
+    }
+
     /** 响应码可读描述（常见值）。 */
     public String rcodeName() {
         return switch (rcode) {

@@ -108,4 +108,27 @@ class ArpHeaderTest {
                 ArpHeader.OPCODE_REQUEST,
                 new byte[5], 0, new byte[6], 0));
     }
+
+    @Test
+    @DisplayName("免费 ARP：发送方=目标=自己、目标 MAC 广播、opcode=1（宣布 IP 归属）")
+    void gratuitousArp() {
+        byte[] myMac = EthernetFrame.parseMac("AA:BB:CC:DD:EE:FF");
+        ArpHeader gratuitous = ArpHeader.gratuitous(IpHeader.parseIp("192.168.1.10"), myMac);
+
+        byte[] bytes = gratuitous.encode();
+        assertEquals(28, bytes.length);
+        assertEquals(ArpHeader.OPCODE_REQUEST, gratuitous.opcode(), "免费 ARP 用请求形式");
+        assertEquals("192.168.1.10", IpHeader.toIpString(gratuitous.senderIp()),
+                "发送方 IP = 自己");
+        assertEquals("192.168.1.10", IpHeader.toIpString(gratuitous.targetIp()),
+                "目标 IP = 自己（宣布归属，不是询问）");
+        assertEquals("FF:FF:FF:FF:FF:FF", EthernetFrame.toMacString(gratuitous.targetMac()),
+                "目标 MAC 是广播地址");
+        assertEquals("AA:BB:CC:DD:EE:FF", EthernetFrame.toMacString(gratuitous.senderMac()));
+
+        // 解析往返一致（PacketParser 按 EtherType 0x0806 分派可解析回）
+        ArpHeader parsed = ArpHeader.parse(bytes);
+        assertEquals("192.168.1.10", IpHeader.toIpString(parsed.senderIp()));
+        assertEquals("192.168.1.10", IpHeader.toIpString(parsed.targetIp()));
+    }
 }
