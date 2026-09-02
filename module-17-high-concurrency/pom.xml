@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.study</groupId>
+        <artifactId>java-spring-study</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <!--
+      纯 Java 模块：不依赖 Spring/Netty，专注高并发实战。
+      覆盖线程池调优、TPS 提升（批量/零拷贝/连接池复用）、限流熔断、系统稳定性（优雅停机/资源隔离/超时/背压）、
+      以及压测对比主程序。本模块不打可执行 jar，运行方式见 README。
+    -->
+    <artifactId>module-17-high-concurrency</artifactId>
+    <name>module-17-high-concurrency</name>
+    <description>高并发实战：线程池调优、TPS 提升（批量/零拷贝/连接池）、限流熔断（令牌桶/漏桶/滑动窗口/熔断器）、稳定性（优雅停机/资源隔离/超时/背压）、压测对比</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

@@ -2,7 +2,7 @@
 
 Java 21 + Spring Boot 3.5 多模块学习仓库：**从 Java 基础到 Spring Cloud 的一站式学习路径**。
 
-> 外层仅是一个目录（父 POM），内层是 16 个相互独立的学习模块，每个模块聚焦一个主题，可单独编译、测试、运行。
+> 外层仅是一个目录（父 POM），内层是 18 个相互独立的学习模块，每个模块聚焦一个主题，可单独编译、测试、运行。
 
 ## 📦 技术栈
 
@@ -35,6 +35,7 @@ Java 21 + Spring Boot 3.5 多模块学习仓库：**从 Java 基础到 Spring Cl
 | [module-14-spring-transaction](module-14-spring-transaction) | Spring 事务 | 声明式事务、提交/回滚、七种传播行为、隔离级别、只读事务、超时、编程式事务、多线程事务、代理调用陷阱 |
 | [module-15-network](module-15-network) | 计算机网络 | 分层模型、TCP/UDP/IP/以太网报文首部逐位解析、TCP vs UDP 对比、JDK 原生 Socket 编程、粘包演示 |
 | [module-16-spring-boot-netty](module-16-spring-boot-netty) | Spring Boot 集成 Netty | Tomcat 进程内嵌 Netty TCP 服务、共享 Spring Bean、独立进程 vs 同 JVM 嵌入选型 |
+| [module-17-high-concurrency](module-17-high-concurrency) | 高并发实战 | 线程池调优（动态参数/监控）、TPS 提升（批量/零拷贝/连接池复用）、限流熔断（令牌桶/漏桶/滑动窗口/熔断器）、稳定性（优雅停机/资源隔离/超时/背压）、压测对比 |
 
 ## 📚 速查文档（docs/）
 
