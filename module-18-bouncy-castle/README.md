@@ -19,13 +19,14 @@
 | `signature` | `SignatureDemo` | RSA-SHA256 / ECDSA / DSA / Ed25519 / **SM3withSM2**（JCE 与 BC 底层 API 双实现 + 互操作） |
 | `key` | `KeyManagementDemo` | 密钥生成、DER / Base64 / PEM 编码与解析还原 |
 | `key` | `KeyAgreementDemo` | DH-2048 / ECDH(P-256) 密钥协商 |
+| `key` | `PrivateKeyParserDemo` | **私钥文件解析与口令验证**：RSA/SM2 私钥的 PKCS#8（未加密/加密）、传统 PKCS#1/SEC1（未加密/加密）、DER 各格式编码与解析还原，`checkPassword` 口令校验（加密私钥先验口令再加载） |
 | `gm` | `GmDemo` | 国密专题：SM2+SM3+SM4 **数字信封**全链路 |
 | `cert` | `CertificateDemo` | X.509 证书：CA 自签名根证书、签发服务器证书、信任链/有效期/签名验证 |
 | `cert` | `Pkcs12Demo` | PKCS#12 密钥库：私钥+证书链打包（.p12 字节流）、读回还原、口令保护 |
 | `cms` | `CmsDemo` | CMS（RFC 5652）：数字信封 EnvelopedData（AES-CBC + RSA 密钥封装）、PKCS#7 签名（**attach 内嵌 / detach 分离**）、**PEM 导出 .p7m/.p7s/.p7e + openssl 命令行验证**、**国密版（SM2+SM3+SM4 构造 SignedData/EnvelopedData）** |
 | `p10` | `CsrDemo` | PKCS#10（P10）：**CSR 构建**（Subject+公钥+SAN 扩展）、验签、**CA 基于 CSR 签发证书**、**二级 CA 链（根→中间→叶）+ PKIX 完整链验证** |
 
-测试：`src/test/java/com/study/bc/**` 共 **94 个**（每个算法往返、篡改检测、错钥/错数据拒绝、已知向量、证书链/密钥库、SM2 底层/互操作、CBC 块翻转、CMS 信封与签名、PKCS#10 CSR、PEM 导出往返、二级 CA 链、CMS 国密版）。
+测试：`src/test/java/com/study/bc/**` 共 **165 个**（每个算法往返、篡改检测、错钥/错数据拒绝、已知向量、证书链/密钥库、SM2 底层/互操作、CBC 块翻转、CMS 信封与签名、PKCS#10 CSR、PEM 导出往返、二级 CA 链、CMS 国密版、**RSA/SM2 私钥各格式解析与口令验证**）。
 
 ## 二、运行方式
 
@@ -263,7 +264,7 @@ CA:     用 CSR 内嵌公钥验签（证明申请人持有私钥）-> 用 CSR �
 
 ## 六、测试用例与守护场景
 
-> 85 个测试按包分组，每一行回答「这个用例在守护什么场景」。
+> 165 个测试按包分组，每一行回答「这个用例在守护什么场景」。
 
 ### hash — 哈希（6 个）
 
@@ -366,6 +367,18 @@ CA:     用 CSR 内嵌公钥验签（证明申请人持有私钥）-> 用 CSR �
 | DER/Base64 一致 | Base64 是 DER 的文本化，可无损互转（JSON 传输） |
 | DH/ECDH 协商一致 | 密钥协商正确性（共享秘密相同） |
 
+### key — 私钥解析与口令验证（19 个）
+
+| 测试 | 守护场景 |
+|---|---|
+| RSA/SM2 × PKCS#8 PEM（未加密/加密）往返 | 私钥文件解析还原（字节级一致） |
+| RSA/SM2 × 传统 PEM（PKCS#1/SEC1，未加密/加密）往返 | OpenSSL 传统格式解析还原 |
+| 加密私钥正确/错误口令 | 加载前先验口令，避免「口令错误」误判为「文件损坏」 |
+| 未加密私钥任意口令恒通过 | checkPassword 语义：无口令可验 |
+| DER（PKCS#8 二进制）往返 | 二进制私钥文件解析 |
+| 解析出的私钥签名（SHA256withRSA / SM3withSM2）验签 | 解析还原的密钥可直接用于密码学操作 |
+| 私钥文件落盘重读解析（@TempDir） | 真实文件场景：.pem / .der 读回还原 |
+
 ### cert — 证书与 PKCS#12（8 个）
 
 | 测试 | 守护场景 |
@@ -409,6 +422,6 @@ CA:     用 CSR 内嵌公钥验签（证明申请人持有私钥）-> 用 CSR �
 
 ## 七、验证
 
-- `mvn test -pl module-18-bouncy-castle`：89 个测试全绿。
+- `mvn test -pl module-18-bouncy-castle`：165 个测试全绿（含 `PrivateKeyParserDemoTest` 19 个：RSA/SM2 私钥各格式解析还原与口令验证）。
 - 全量 `mvn clean verify`：BUILD SUCCESS、0 checkstyle 违规。
 - 实际运行 `Main`：10 个小节全部往返验证通过（哈希向量、AES 四模式、SM2/SM3/SM4 信封、签名五种、PEM 还原、DH/ECDH 协商一致、CA 签发与信任链、PKCS#12 打包还原、CMS 信封与 attach/detach 签名、CSR 构建验签与证书签发、**二级 CA 链完整链验证 true / 无关根 false**、**CMS 国密版：SM3withSM2 attach 452B/detach 364B 验签 true 篡改 false、SM2+SM4 信封 305B 开拆一致 true 错私钥拒绝**）；[9] 节自动执行 openssl 三条命令全部成功（attach/detach 验签 Verification successful、信封解密内容一致）。

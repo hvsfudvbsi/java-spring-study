@@ -12,6 +12,7 @@ import com.study.bc.p10.CsrDemo;
 import com.study.bc.hash.HashDemo;
 import com.study.bc.key.KeyAgreementDemo;
 import com.study.bc.key.KeyManagementDemo;
+import com.study.bc.key.PrivateKeyParserDemo;
 import com.study.bc.mac.CmacDemo;
 import com.study.bc.mac.HmacDemo;
 import com.study.bc.signature.SignatureDemo;
@@ -34,7 +35,7 @@ import com.study.bc.symmetric.Sm4Demo;
  *   <li>非对称加密：RSA(PKCS1/OAEP)、ECC、SM2</li>
  *   <li>MAC：HMAC、CMAC</li>
  *   <li>数字签名：RSA-SHA256/ECDSA/DSA/Ed25519/SM3withSM2</li>
- *   <li>密钥：PEM/DER/Base64 编码转换、DH/ECDH 协商</li>
+ *   <li>密钥：PEM/DER/Base64 编码转换、DH/ECDH 协商、RSA/SM2 私钥解析与口令验证</li>
  *   <li>国密专题：SM2+SM3+SM4 数字信封</li>
  *   <li>X.509 证书与 PKCS#12 密钥库</li>
  *   <li>CMS：数字信封（EnvelopedData）+ PKCS#7 签名（attach/detach）</li>
@@ -79,6 +80,7 @@ public final class Main {
         System.out.println("[6] 密钥管理与协商");
         KeyManagementDemo.demo();
         KeyAgreementDemo.demo();
+        PrivateKeyParserDemo.demo();
 
         System.out.println("[7] 国密专题");
         GmDemo.demo();
