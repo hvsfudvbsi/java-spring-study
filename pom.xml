@@ -47,6 +47,7 @@
         <module>module-16-spring-boot-netty</module>
         <module>module-17-high-concurrency</module>
         <module>module-18-bouncy-castle</module>
+        <module>module-19-classloader</module>
     </modules>
 
     <properties>

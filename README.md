@@ -36,6 +36,7 @@ Java 21 + Spring Boot 3.5 多模块学习仓库：**从 Java 基础到 Spring Cl
 | [module-15-network](module-15-network) | 计算机网络 | 分层模型、TCP/UDP/IP/以太网报文首部逐位解析、TCP vs UDP 对比、JDK 原生 Socket 编程、粘包演示 |
 | [module-16-spring-boot-netty](module-16-spring-boot-netty) | Spring Boot 集成 Netty | Tomcat 进程内嵌 Netty TCP 服务、共享 Spring Bean、独立进程 vs 同 JVM 嵌入选型 |
 | [module-17-high-concurrency](module-17-high-concurrency) | 高并发实战 | 线程池调优（动态参数/监控）、TPS 提升（批量/零拷贝/连接池复用）、限流熔断（令牌桶/漏桶/滑动窗口/熔断器）、稳定性（优雅停机/资源隔离/超时/背压）、压测对比 |
+| [module-19-classloader](module-19-classloader) | 类加载机制 | 加载生命周期、双亲委派、自定义/打破委派类加载器、SPI 与线程上下文类加载器、类冲突（两 jar 同名类）隔离方案、类加载/卸载与插件系统 |
 
 ## 📚 速查文档（docs/）
 

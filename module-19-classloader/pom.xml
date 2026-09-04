@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.study</groupId>
+        <artifactId>java-spring-study</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <!--
+      纯 Java 模块：不依赖 Spring，专注 JVM 类加载机制。
+      覆盖类加载生命周期、双亲委派模型、自定义/打破委派类加载器、
+      SPI 与线程上下文类加载器、类冲突（两个 jar 同名类）的隔离方案、
+      类加载/卸载机制与插件系统。
+      本模块不打可执行 jar，运行方式见 README。
+    -->
+    <artifactId>module-19-classloader</artifactId>
+    <name>module-19-classloader</name>
+    <description>类加载机制：加载过程、双亲委派、自定义类加载器、类冲突隔离、类卸载与插件系统</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
