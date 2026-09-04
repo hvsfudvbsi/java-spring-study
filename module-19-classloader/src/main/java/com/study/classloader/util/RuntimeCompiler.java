@@ -7,6 +7,7 @@ import javax.tools.SimpleJavaFileObject;
 import javax.tools.StandardJavaFileManager;
 import javax.tools.StandardLocation;
 import javax.tools.ToolProvider;
+import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
@@ -14,6 +15,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 
 /**
  * 运行时编译工具：把一段 Java 源码字符串编译成 .class 文件（javax.tools.JavaCompiler）。
@@ -21,7 +24,8 @@ import java.util.Map;
  * 用途（本模块的核心演示手段）：
  *  - 模拟"两个 jar 里有相同类名但内容不同"：把同名类源码编译到两个不同目录，
  *    每个目录等价于一个 jar 解压后的结构（jar 本质上就是 zip 包，.class 就在里面）；
- *  - 生成"不在应用类路径上"的类，供自定义类加载器加载/卸载演示。
+ *  - 生成"不在应用类路径上"的类，供自定义类加载器加载/卸载演示；
+ *  - {@link #packageToJar} 把编译好的目录再打成真实 .jar，供 JarClassLoader 演示。
  *
  * 为什么需要它：如果两个同名类都写进 src/main/java，Maven 编译时第二个会覆盖第一个，
  * 而且它们都会被 AppClassLoader 加载——就演示不了"隔离加载"和"类卸载"了。
@@ -61,6 +65,35 @@ public final class RuntimeCompiler {
      * @return outputDir，方便链式调用
      * @throws IllegalStateException 编译失败（源码有语法错误等），诊断信息会附在异常里
      */
+    /**
+     * 把编译好的 .class 目录打包成真实的 .jar 文件（zip 格式，.class 入口在包里）。
+     *
+     * 用途：{@code compile} 得到的是"jar 解压目录"，本方法把它还原成 jar，
+     * 供 {@code JarClassLoader}（delegation.custom 包）从真实 .jar 文件加载类，
+     * 等价于"把插件源码打成可发布的 jar"。
+     *
+     * @param compiledDir  compile 的输出目录（里面是包结构 + .class 文件）
+     * @param jarFile      要生成的 jar 文件路径（父目录不存在会自动创建）
+     * @return jarFile，方便链式调用
+     */
+    public static Path packageToJar(Path compiledDir, Path jarFile) throws IOException {
+        if (jarFile.getParent() != null) {
+            Files.createDirectories(jarFile.getParent());
+        }
+        try (JarOutputStream jos = new JarOutputStream(Files.newOutputStream(jarFile))) {
+            try (var stream = Files.walk(compiledDir)) {
+                // 按名称排序保证打包结果稳定；entry 名用 / 分隔（zip 规范）。
+                for (Path file : stream.filter(Files::isRegularFile).sorted().toList()) {
+                    String entryName = compiledDir.relativize(file).toString().replace(File.separatorChar, '/');
+                    jos.putNextEntry(new JarEntry(entryName));
+                    jos.write(Files.readAllBytes(file));
+                    jos.closeEntry();
+                }
+            }
+        }
+        return jarFile;
+    }
+
     public static Path compileAll(Path outputDir, Map<String, String> sources) throws IOException {
         Files.createDirectories(outputDir);
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();

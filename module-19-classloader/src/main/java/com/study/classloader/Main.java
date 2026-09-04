@@ -5,6 +5,7 @@ import com.study.classloader.conflict.ClassConflictDemo;
 import com.study.classloader.conflict.IsolationDemo;
 import com.study.classloader.delegation.DelegationBreakDemo;
 import com.study.classloader.delegation.DelegationChainDemo;
+import com.study.classloader.delegation.custom.JarClassLoaderDemo;
 import com.study.classloader.plugin.PluginRunner;
 import com.study.classloader.spi.TccLDemo;
 import com.study.classloader.unload.ClassUnloadDemo;
@@ -16,7 +17,7 @@ import com.study.classloader.unload.ClassUnloadDemo;
  *   mvn compile exec:java -pl module-19-classloader -Dexec.mainClass=com.study.classloader.Main
  *   或在 IDEA 中直接运行本类 main 方法。
  *
- * 依次演示 8 个知识点：
+ * 依次演示 9 个知识点：
  *  1. 类加载生命周期与初始化触发时机（basic/ClassLoadingLifecycleDemo）
  *  2. 类加载器层次与双亲委派（delegation/DelegationChainDemo）
  *  3. 双亲委派 vs 打破双亲委派（delegation/DelegationBreakDemo）
@@ -25,6 +26,7 @@ import com.study.classloader.unload.ClassUnloadDemo;
  *  6. 隔离加载：两个 jar 同名类共存（conflict/IsolationDemo）
  *  7. 类卸载：WeakReference + GC 验证（unload/ClassUnloadDemo）
  *  8. 插件系统：同名模块不同时使用，加载/卸载热切换（plugin/PluginRunner）
+ *  9. jar 文件加载：JarClassLoader 从真实 jar 读字节码（delegation/custom/JarClassLoaderDemo）
  */
 public class Main {
 
@@ -63,6 +65,10 @@ public class Main {
 
         // 8. 插件系统：两个同名服务模块不同时使用 → 加载/卸载热切换。
         new PluginRunner().demo();
+        System.out.println();
+
+        // 9. jar 文件加载：JarClassLoader 从真实 jar 读字节码，与目录加载对照。
+        new JarClassLoaderDemo().demo();
         System.out.println();
 
         System.out.println("========== 全部 Demo 执行完毕 ==========");

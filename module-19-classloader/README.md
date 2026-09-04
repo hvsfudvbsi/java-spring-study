@@ -1,6 +1,6 @@
 # module-19-classloader — 类加载机制
 
-> 纯 Java 模块（不依赖 Spring），通过可运行的 Demo + 50 个测试，从原理到实战掌握
+> 纯 Java 模块（不依赖 Spring），通过可运行的 Demo + 59 个测试，从原理到实战掌握
 > **类加载机制、双亲委派、类冲突隔离、类加载/卸载**——并完整回答面试题
 > 「两个 jar 存在相同类名但都要用怎么办」「两个模块不同时使用能否靠类的加载/卸载机制切换」。
 
@@ -11,10 +11,11 @@
 | `basic` | `ClassLoadingLifecycleDemo` / `SampleClass` / `InitRecorder` | 加载→验证→准备→解析→初始化 五阶段；哪些操作触发初始化（new / forName / getstatic / 静态方法），哪些不触发（loadClass / forName(false) / 编译期常量 ldc 内联）；`<clinit>` 只执行一次；父类先于子类初始化 |
 | `delegation` | `DelegationChainDemo` | JDK 9+ 三层类加载器：Bootstrap(null) ← Platform ← Application；双亲委派流程（findLoadedClass → 父 → 自己）；为什么必须委派（安全、一致性、缓存复用） |
 | `delegation.custom` | `FileClassLoader` / `TargetClass` | 自定义类加载器：只重写 `findClass` + `defineClass` 即遵循双亲委派；从目录（模拟 jar）读字节码加载类；多目录顺序搜索；findLoadedClass 缓存 |
+| `delegation.custom` | `JarClassLoader` / `JarClassLoaderDemo` | 同上，但输入是**真实 .jar 文件**：用 `JarFile` 按 entry 名读 `.class` 字节码再 `defineClass`（README 动手练习 1 的落地）；多 jar 顺序搜索、同名类先声明先生效、jar 与目录加载出不同类身份 |
 | `delegation.custom` | `BreakDelegationClassLoader` | 打破双亲委派（父最后 / parent-last）：重写 `loadClass` 先自己加载；只对指定命名空间生效，`java.*` 仍委派 Bootstrap；类身份 = 全限定名 + 定义加载器 |
 | `delegation` | `DelegationBreakDemo` | 委派 vs 打破委派对照实验：同名类两种策略加载出不同 Class，跨加载器只能反射/接口交互 |
 | `spi` | `Greeting` / `TccLDemo` | SPI 与线程上下文类加载器（TCCL）：框架代码如何加载"看不见"的第三方实现；JDBC DriverManager 同款机制；用后必须恢复 TCCL |
-| `util` | `RuntimeCompiler` | 用 `javax.tools.JavaCompiler` 在运行时把源码字符串编译成 `.class` 目录（等价于"一个 jar 解压目录"），是本模块所有"两个 jar"场景的原料 |
+| `util` | `RuntimeCompiler` | 用 `javax.tools.JavaCompiler` 在运行时把源码字符串编译成 `.class` 目录（等价于"一个 jar 解压目录"），是本模块所有"两个 jar"场景的原料；`packageToJar` 再把目录打成真实 `.jar` |
 | `conflict` | `IGreeter` / `ClassConflictDemo` | 类冲突（Jar Hell）：同一个类加载器里同名类只有一份，谁先加载谁生效（classpath 顺序 / Maven 仲裁）；先加载版本实现共同接口可直接调用 |
 | `conflict` | `IsolationDemo` | 隔离加载：两个 jar 同名类【都要用】→ 每个 jar 一个专属类加载器 + 父加载器提供的共同接口，两个版本共存且类型安全 |
 | `unload` | `ClassUnloadDemo` | 类卸载三条件（Class 无强引用 + 加载器无强引用 + 该加载器全部类无引用）；WeakReference + System.gc() 验证；卸载后可重新加载 |
@@ -24,12 +25,12 @@
 ## 二、运行方式
 
 ```bash
-# 运行全部 Demo（8 个小节）
+# 运行全部 Demo（9 个小节）
 mvn compile exec:java -pl module-19-classloader -Dexec.mainClass=com.study.classloader.Main
 # 或编译后直接跑
 cd module-19-classloader && java -cp target/classes com.study.classloader.Main
 
-# 运行测试（50 个）
+# 运行测试（59 个）
 mvn test -pl module-19-classloader
 ```
 
@@ -163,10 +164,11 @@ Tomcat reload、Spring Boot DevTools、OSGi 动态换 bundle 的原理。若两�
 7. **每次 `URLClassLoader` 用完不 close 导致文件句柄泄漏**——能 close 就 close；
    但注意 close 后该类加载器加载的类仍可被使用，只是不能再加载新类。
 
-## 六、测试用例与守护场景（50 个）
+## 六、测试用例与守护场景（59 个）
 
 | 测试类 | 守护场景 |
 |---|---|
+| `JarClassLoaderTest`（9） | jar 文件加载、父优先委派、findLoadedClass 缓存、双加载器类身份不同、多 jar 顺序搜索、同名类先声明 jar 先生效、ClassNotFoundException、listAvailableClasses、jar 与目录加载对照（类身份不同但都能用） |
 | `ClassLoadingLifecycleDemoTest`（9） | loadClass / forName(false) / 编译期常量不初始化；forName(true) / getstatic / new 触发初始化；`<clinit>` 只执行一次；父先于子初始化；全新加载器 = 全新未初始化类 |
 | `DelegationChainDemoTest`（6） | 三层委派链结构；String=Bootstrap、DataSource=Platform、用户类=Application；自定义加载器加载 String 委派到同一份；委派流程伪代码 |
 | `FileClassLoaderTest`（7） | 目录加载、父优先委派、findLoadedClass 缓存、双加载器类身份不同、多目录顺序搜索、ClassNotFoundException、listAvailableClasses |
@@ -179,8 +181,10 @@ Tomcat reload、Spring Boot DevTools、OSGi 动态换 bundle 的原理。若两�
 
 ## 七、动手练习
 
-1. **改造 FileClassLoader 支持 jar 文件**：不传目录而是传 `.jar` 路径，用
-   `ZipInputStream` / `JarFile` 读取里面的 `.class` 字节码再 `defineClass`。
+1. ✅ **已完成——改造类加载器支持 jar 文件**：见 `delegation.custom.JarClassLoader`
+   （传 `.jar` 路径，用 `JarFile` 读 `.class` 字节码再 `defineClass`）及其测试
+   `JarClassLoaderTest`。对照结论：jar 与目录只是字节码来源不同，加载原理一致；
+   多 jar 顺序搜索与真实 classpath 的"先声明先生效"规则相同。
 2. **给 PluginRunner 增加卸载钩子**：在 `PluginVersion` 上加 `void shutdown()`，
    unload 前调用，模拟"停模块前释放资源"。
 3. **写一个 ServiceLoader 版 SPI**：用 `META-INF/services` 文件 + `ServiceLoader` 替换
@@ -205,8 +209,9 @@ Tomcat reload、Spring Boot DevTools、OSGi 动态换 bundle 的原理。若两�
 
 ## 九、验证
 
-- `mvn test -pl module-19-classloader`：50 个测试全绿。
-- `java -cp target/classes com.study.classloader.Main`：8 个小节全部演示成功
+- `mvn test -pl module-19-classloader`：59 个测试全绿。
+- `java -cp target/classes com.study.classloader.Main`：9 个小节全部演示成功
   （生命周期 0/1 次数、委派链三层、委派/打破对照 parent-version vs child-version、
-  TCCL 加载实现、冲突 A/B 切换、隔离双版本共存、类卸载 true、插件 v1→v2→v1 热切换）。
+  TCCL 加载实现、冲突 A/B 切换、隔离双版本共存、类卸载 true、插件 v1→v2→v1 热切换、
+  jar 加载 vs 目录加载对照 false）。
 - 全量 `mvn clean verify`：BUILD SUCCESS、0 checkstyle 违规。
