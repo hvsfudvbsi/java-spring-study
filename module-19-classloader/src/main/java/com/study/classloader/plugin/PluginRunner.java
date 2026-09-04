@@ -17,6 +17,9 @@ import java.nio.file.Path;
  *  → 每次只加载需要的那一个：用完把类加载器引用全部置空，GC 卸载旧版本，
  *    需要切换时用全新加载器加载另一个版本，两者互不残留。
  *
+ * 卸载前先调用 {@link PluginVersion#shutdown()} 钩子释放资源（README 动手练习 2），
+ * 再清空引用交给 GC 回收。
+ *
  * 与"同时使用"（IsolationDemo）的区别：
  *  - 同时使用：两个加载器并存，各自加载各自版本（内存里有双份类）；
  *  - 不同时使用：同一时刻只有一个加载器存活，切换时旧类被卸载（内存更省、更干净）。
@@ -39,6 +42,9 @@ public class PluginRunner {
 
             /** 服务模块 v1 的实现类。 */
             public class GreetingPlugin implements PluginVersion {
+                /** 资源是否已释放（卸载钩子是否被调用）。 */
+                private boolean shutDown = false;
+
                 @Override
                 public String name() {
                     return "plugin-v1";
@@ -47,6 +53,18 @@ public class PluginRunner {
                 @Override
                 public String execute(String input) {
                     return "[v1] processed: " + input;
+                }
+
+                /** 卸载钩子：释放模块持有的资源（模拟关闭连接/线程池）。 */
+                @Override
+                public void shutdown() {
+                    shutDown = true;
+                    System.out.println("    [plugin-v1] shutdown()：已释放连接与线程池资源");
+                }
+
+                /** 仅供测试检查：shutdown() 是否已被调用。 */
+                public boolean isShutDown() {
+                    return shutDown;
                 }
             }
             """;
@@ -59,6 +77,9 @@ public class PluginRunner {
 
             /** 服务模块 v2 的实现类。 */
             public class GreetingPlugin implements PluginVersion {
+                /** 资源是否已释放（卸载钩子是否被调用）。 */
+                private boolean shutDown = false;
+
                 @Override
                 public String name() {
                     return "plugin-v2";
@@ -67,6 +88,18 @@ public class PluginRunner {
                 @Override
                 public String execute(String input) {
                     return "[v2] processed: " + input.toUpperCase();
+                }
+
+                /** 卸载钩子：释放模块持有的资源（模拟关闭连接/线程池）。 */
+                @Override
+                public void shutdown() {
+                    shutDown = true;
+                    System.out.println("    [plugin-v2] shutdown()：已释放连接与线程池资源");
+                }
+
+                /** 仅供测试检查：shutdown() 是否已被调用。 */
+                public boolean isShutDown() {
+                    return shutDown;
                 }
             }
             """;
@@ -95,6 +128,15 @@ public class PluginRunner {
 
         public String name() {
             return plugin.name();
+        }
+
+        /**
+         * 插件实例（仅供测试/演示检查用）。
+         * ⚠️ 注意：外部持有它会阻止类被 GC 卸载（README 常见错误 5），
+         * 检查完必须释放引用才能验证卸载。
+         */
+        public PluginVersion plugin() {
+            return plugin;
         }
 
         /** 弱引用：用于验证类是否已被卸载（get() == null 说明已卸载）。 */
@@ -128,10 +170,15 @@ public class PluginRunner {
     }
 
     /**
-     * 卸载插件：清空所有强引用（等价于"停掉模块"）。
-     * 之后只要没有别处还持有 Class / 加载器引用，GC 即可卸载整个模块的类。
+     * 卸载插件（等价于"停掉模块"）：
+     * 1. 先调用卸载钩子 {@link PluginVersion#shutdown()} 释放资源；
+     * 2. 再清空所有强引用——之后只要没有别处还持有 Class / 加载器引用，
+     *    GC 即可卸载整个模块的类。
      */
     public void unload(PluginHandle handle) {
+        if (handle.plugin != null) {
+            handle.plugin.shutdown(); // 卸载钩子：先释放模块资源，再清引用
+        }
         handle.plugin = null;
         handle.clazz = null;
         handle.loader = null;
@@ -177,7 +224,8 @@ public class PluginRunner {
         PluginHandle v1Again = load(dirs[0]);
         System.out.println("再次部署 v1：" + v1Again.name() + " → " + v1Again.execute("again"));
         System.out.println();
-        System.out.println("结论：不同时使用的两个同名模块 → 独立加载器 + 用完卸载，");
-        System.out.println("互不冲突、可反复热切换，这正是 Tomcat reload / 插件系统的原理。");
+        System.out.println("结论：不同时使用的两个同名模块 → 独立加载器 + 用完卸载");
+        System.out.println("（卸载前先调 shutdown() 钩子释放资源），互不冲突、可反复热切换，");
+        System.out.println("这正是 Tomcat reload / 插件系统的原理。");
     }
 }

@@ -9,8 +9,10 @@ import java.lang.ref.WeakReference;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -94,6 +96,22 @@ class PluginRunnerTest {
     }
 
     @Test
+    @DisplayName("卸载前调用 shutdown 钩子：先释放资源再清引用")
+    void unloadInvokesShutdownHook() throws Exception {
+        PluginRunner.PluginHandle v1 = runner.load(dirs[0]);
+        PluginVersion plugin = v1.plugin();
+        // 这里故意持有插件实例引用以便检查 shutdown 效果；
+        // 注意：业务代码持有实例会阻止类卸载（见 PluginRunner.plugin() 的注释）。
+        assertEquals("[v1] processed: hi", v1.execute("hi"));
+        assertFalse(isShutDown(plugin), "卸载前资源应处于打开状态");
+
+        runner.unload(v1);
+
+        assertTrue(isShutDown(plugin), "unload 必须先调用 shutdown() 释放资源");
+        assertNull(v1.plugin(), "句柄内的强引用应被清空");
+    }
+
+    @Test
     @DisplayName("同时部署 v1 和 v2：各自独立加载器，同名类共存且都能用")
     void simultaneousDeployBothVersions() throws Exception {
         PluginRunner.PluginHandle v1 = runner.load(dirs[0]);
@@ -102,5 +120,10 @@ class PluginRunnerTest {
         assertEquals("[v2] processed: X", v2.execute("x"));
         assertNotSame(v1.weakRef().get(), v2.weakRef().get(),
                 "同时部署时两个版本是不同的 Class");
+    }
+
+    /** 反射调用实现类的 isShutDown()（不在接口契约里，验证卸载钩子专用）。 */
+    private static boolean isShutDown(PluginVersion plugin) throws Exception {
+        return (boolean) plugin.getClass().getMethod("isShutDown").invoke(plugin);
     }
 }

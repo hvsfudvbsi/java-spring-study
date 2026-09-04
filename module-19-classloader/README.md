@@ -1,6 +1,6 @@
 # module-19-classloader — 类加载机制
 
-> 纯 Java 模块（不依赖 Spring），通过可运行的 Demo + 59 个测试，从原理到实战掌握
+> 纯 Java 模块（不依赖 Spring），通过可运行的 Demo + 60 个测试，从原理到实战掌握
 > **类加载机制、双亲委派、类冲突隔离、类加载/卸载**——并完整回答面试题
 > 「两个 jar 存在相同类名但都要用怎么办」「两个模块不同时使用能否靠类的加载/卸载机制切换」。
 
@@ -19,7 +19,7 @@
 | `conflict` | `IGreeter` / `ClassConflictDemo` | 类冲突（Jar Hell）：同一个类加载器里同名类只有一份，谁先加载谁生效（classpath 顺序 / Maven 仲裁）；先加载版本实现共同接口可直接调用 |
 | `conflict` | `IsolationDemo` | 隔离加载：两个 jar 同名类【都要用】→ 每个 jar 一个专属类加载器 + 父加载器提供的共同接口，两个版本共存且类型安全 |
 | `unload` | `ClassUnloadDemo` | 类卸载三条件（Class 无强引用 + 加载器无强引用 + 该加载器全部类无引用）；WeakReference + System.gc() 验证；卸载后可重新加载 |
-| `plugin` | `PluginVersion` / `PluginRunner` | 插件系统实战：两个同名"服务模块"不同时使用 → 独立加载器 + 用完卸载，热切换 v1/v2/v1 互不残留（Tomcat reload / OSGi 同款原理） |
+| `plugin` | `PluginVersion` / `PluginRunner` | 插件系统实战：两个同名"服务模块"不同时使用 → 独立加载器 + 用完卸载，热切换 v1/v2/v1 互不残留；卸载前先调 `shutdown()` 钩子释放资源（练习 2）（Tomcat reload / OSGi 同款原理） |
 | `Main` | 入口 | 依次演示全部 8 个知识点 |
 
 ## 二、运行方式
@@ -30,7 +30,7 @@ mvn compile exec:java -pl module-19-classloader -Dexec.mainClass=com.study.class
 # 或编译后直接跑
 cd module-19-classloader && java -cp target/classes com.study.classloader.Main
 
-# 运行测试（59 个）
+# 运行测试（60 个）
 mvn test -pl module-19-classloader
 ```
 
@@ -125,10 +125,11 @@ Class 对象，清空所有强引用后循环 `System.gc()`，`weakRef.get() == 
 回收（本模块 `ClassUnloadDemo` 完整演示，卸载后可重新加载并得到全新 Class）。
 
 **回答"两个服务模块不是同时使用，能否使用类的加载卸载机制"：可以。** 做法与插件系统
-（`PluginRunner`）一致：每个模块用独立类加载器加载，用完把加载器引用全部置空，GC 即
-卸载整个模块的类；切换时用全新加载器加载另一个版本，互不残留、可反复热切换。这正是
-Tomcat reload、Spring Boot DevTools、OSGi 动态换 bundle 的原理。若两个模块**同时**使用，
-则用 `IsolationDemo` 的"双加载器并存"方案。
+（`PluginRunner`）一致：每个模块用独立类加载器加载，用完先调 `shutdown()` 卸载钩子
+释放资源（README 练习 2，`PluginRunner.unload` 里已实现），再把加载器引用全部置空，
+GC 即卸载整个模块的类；切换时用全新加载器加载另一个版本，互不残留、可反复热切换。
+这正是 Tomcat reload、Spring Boot DevTools、OSGi 动态换 bundle 的原理。若两个模块
+**同时**使用，则用 `IsolationDemo` 的"双加载器并存"方案。
 
 ## 四、关键 API 速查
 
@@ -164,7 +165,7 @@ Tomcat reload、Spring Boot DevTools、OSGi 动态换 bundle 的原理。若两�
 7. **每次 `URLClassLoader` 用完不 close 导致文件句柄泄漏**——能 close 就 close；
    但注意 close 后该类加载器加载的类仍可被使用，只是不能再加载新类。
 
-## 六、测试用例与守护场景（59 个）
+## 六、测试用例与守护场景（60 个）
 
 | 测试类 | 守护场景 |
 |---|---|
@@ -177,7 +178,7 @@ Tomcat reload、Spring Boot DevTools、OSGi 动态换 bundle 的原理。若两�
 | `ClassConflictDemoTest`（4） | classpath 顺序决定谁生效（A 前 / B 前）；同一加载器只留一份；赢家实现共同接口可安全调用 |
 | `IsolationDemoTest`（4） | 双版本同时可用；类身份不同；跨加载器 instanceof 失败；共同接口父加载器提供可安全 cast |
 | `ClassUnloadDemoTest`（4） | 刚加载可用；清引用 + GC 后卸载；卸载后可重新加载（全新加载器）；加载器存活时类不卸载 |
-| `PluginRunnerTest`（6） | v1/v2 各自执行正确；用完卸载；顺序切换 v1→v2 全新加载器；反复热切换；同时部署双版本共存 |
+| `PluginRunnerTest`（7） | v1/v2 各自执行正确；用完卸载；顺序切换 v1→v2 全新加载器；反复热切换；同时部署双版本共存；卸载前 shutdown 钩子先释放资源 |
 
 ## 七、动手练习
 
@@ -185,8 +186,9 @@ Tomcat reload、Spring Boot DevTools、OSGi 动态换 bundle 的原理。若两�
    （传 `.jar` 路径，用 `JarFile` 读 `.class` 字节码再 `defineClass`）及其测试
    `JarClassLoaderTest`。对照结论：jar 与目录只是字节码来源不同，加载原理一致；
    多 jar 顺序搜索与真实 classpath 的"先声明先生效"规则相同。
-2. **给 PluginRunner 增加卸载钩子**：在 `PluginVersion` 上加 `void shutdown()`，
-   unload 前调用，模拟"停模块前释放资源"。
+2. ✅ **已完成——给 PluginRunner 增加卸载钩子**：`PluginVersion` 已加 `void shutdown()`，
+   v1/v2 实现类各自模拟"关闭连接/线程池"；`PluginRunner.unload()` 先调 `shutdown()`
+   释放资源、再清空引用。见 `PluginRunnerTest.unloadInvokesShutdownHook`。
 3. **写一个 ServiceLoader 版 SPI**：用 `META-INF/services` 文件 + `ServiceLoader` 替换
    `TccLDemo` 的手工 `Class.forName`，观察谁在用 TCCL。
 4. **观察真实热部署**：用 `java -cp` 起一个循环加载 PluginRunner 的进程，配合
@@ -209,7 +211,7 @@ Tomcat reload、Spring Boot DevTools、OSGi 动态换 bundle 的原理。若两�
 
 ## 九、验证
 
-- `mvn test -pl module-19-classloader`：59 个测试全绿。
+- `mvn test -pl module-19-classloader`：60 个测试全绿。
 - `java -cp target/classes com.study.classloader.Main`：9 个小节全部演示成功
   （生命周期 0/1 次数、委派链三层、委派/打破对照 parent-version vs child-version、
   TCCL 加载实现、冲突 A/B 切换、隔离双版本共存、类卸载 true、插件 v1→v2→v1 热切换、

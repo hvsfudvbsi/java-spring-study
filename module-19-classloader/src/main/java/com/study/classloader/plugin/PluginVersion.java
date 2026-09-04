@@ -18,4 +18,11 @@ public interface PluginVersion {
 
     /** 执行业务逻辑，返回处理结果。 */
     String execute(String input);
+
+    /**
+     * 卸载钩子：宿主在卸载本插件【前】调用，用于释放连接、线程、文件等资源。
+     * 现实对应：Spring 的 DisposableBean.destroy()、Tomcat reload 前停 Context、
+     * OSGi 卸载 bundle 前的 stop 回调。
+     */
+    void shutdown();
 }
